@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NutriRecipes</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --bg: #F7F7F5;
+    --accent: #1D9E75;
+    --accent-dark: #167A5B;
+    --card: #FFFFFF;
+    --border: #EAEAE6;
+    --ink: #222222;
+    --ink-soft: #8A8A85;
+    --protein-bg: #E8F0FE; --protein-fg: #2B5FBF;
+    --carb-bg: #FCEFE0; --carb-fg: #B5690E;
+    --fat-bg: #FBEAEA; --fat-fg: #B23A3A;
+    --radius: 16px;
+  }
+  *{ box-sizing: border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a{ color: inherit; }
+  button{ font-family: inherit; }
+
+  /* ===== Loading screen ===== */
+  #loadingScreen{
+    position: fixed; inset: 0;
+    background: var(--bg);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 100;
+    gap: 14px;
+  }
+  .spinner{
+    width: 38px; height: 38px;
+    border-radius: 50%;
+    border: 3px solid var(--border);
+    border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin{ to{ transform: rotate(360deg); } }
+  #loadingScreen .msg{ color: var(--ink-soft); font-size: 14px; }
+
+  /* ===== Header ===== */
+  .header{
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 24px 24px 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .brand{
+    font-size: 26px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .header-actions{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    justify-content: flex-end;
+    min-width: 260px;
+  }
+  .search-box{
+    flex: 1;
+    max-width: 360px;
+    position: relative;
+  }
+  .search-box input{
+    width: 100%;
+    padding: 11px 16px 11px 38px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    font-size: 14px;
+    outline: none;
+  }
+  .search-box input:focus{ border-color: var(--accent); }
+  .search-box .icon{
+    position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+    color: var(--ink-soft); font-size: 14px; pointer-events:none;
+  }
+  .icon-btn{
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--card);
+    display: flex; align-items:center; justify-content:center;
+    cursor: pointer;
+    font-size: 16px;
+    color: var(--ink-soft);
+    flex-shrink: 0;
+  }
+  .icon-btn:hover{ border-color: var(--accent); color: var(--accent); }
+
+  /* ===== Filters ===== */
+  .filters-panel{
+    max-width: 1180px;
+    margin: 20px auto 0;
+    padding: 20px 24px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .filters-panel + .filters-panel{ margin-top: 0; }
+  .filter-label{
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin: 0 0 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .chip-row{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 18px;
+  }
+  .chip-row:last-child{ margin-bottom: 0; }
+  .chip{
+    padding: 8px 16px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    font-size: 13.5px;
+    font-weight: 500;
+    cursor: pointer;
+    color: var(--ink);
+    user-select: none;
+  }
+  .chip:hover{ border-color: var(--accent); }
+  .chip.active{
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  /* ===== Content wrap ===== */
+  .content{
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 20px 24px 120px;
+  }
+  .result-count{
+    font-size: 14px;
+    color: var(--ink-soft);
+    margin: 4px 0 16px;
+  }
+  .result-count b{ color: var(--ink); }
+
+  /* ===== Recipe grid ===== */
+  .grid{
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 16px;
+  }
+  .card{
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px 18px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: box-shadow 0.15s ease, transform 0.15s ease;
+  }
+  .card:hover{
+    box-shadow: 0 10px 24px -14px rgba(0,0,0,0.25);
+    transform: translateY(-2px);
+  }
+  .card-icon{
+    width: 64px; height: 64px;
+    border-radius: 50%;
+    background: var(--bg);
+    font-size: 30px;
+    display: flex; align-items:center; justify-content:center;
+    margin: 0 auto 12px;
+  }
+  .card-title{
+    font-size: 16px;
+    font-weight: 700;
+    margin: 0 0 10px;
+    line-height: 1.3;
+  }
+  .cal-pill{
+    display: inline-block;
+    background: #FCEFE0;
+    color: #B5690E;
+    font-size: 12.5px;
+    font-weight: 700;
+    padding: 5px 12px;
+    border-radius: 999px;
+    margin-bottom: 10px;
+  }
+  .macro-badges{
+    display: flex;
+    justify-content: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .badge{
+    font-size: 11.5px;
+    font-weight: 700;
+    padding: 4px 9px;
+    border-radius: 999px;
+  }
+  .badge.p{ background: var(--protein-bg); color: var(--protein-fg); }
+  .badge.c{ background: var(--carb-bg); color: var(--carb-fg); }
+  .badge.f{ background: var(--fat-bg); color: var(--fat-fg); }
+
+  .empty-state{
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 70px 20px;
+    color: var(--ink-soft);
+  }
+  .empty-state h3{ color: var(--ink); font-size: 19px; margin: 0 0 6px; }
+  .empty-state button{
+    margin-top: 14px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 999px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  /* ===== FAB ===== */
+  .fab{
+    position: fixed;
+    right: 28px; bottom: 28px;
+    width: 58px; height: 58px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    font-size: 28px;
+    line-height: 1;
+    box-shadow: 0 8px 20px -6px rgba(29,158,117,0.6);
+    cursor: pointer;
+    z-index: 40;
+  }
+  .fab:hover{ background: var(--accent-dark); }
+
+  /* ===== Detail view ===== */
+  .back-btn{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: none;
+    border: none;
+    color: var(--ink-soft);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 8px 0 18px;
+  }
+  .back-btn:hover{ color: var(--accent); }
+  .detail-hero{
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 34px 24px;
+    text-align: center;
+    margin-bottom: 20px;
+  }
+  .detail-hero .card-icon{ width: 84px; height: 84px; font-size: 40px; }
+  .detail-hero h1{ font-size: 24px; margin: 4px 0 14px; }
+  .detail-hero .cal-pill{ font-size: 14px; padding: 7px 16px; }
+  .detail-hero .macro-badges{ margin-top: 12px; }
+  .detail-hero .badge{ font-size: 13px; padding: 6px 12px; }
+
+  .section-block{
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px 24px;
+    margin-bottom: 20px;
+  }
+  .section-block h2{
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-soft);
+    margin: 0 0 14px;
+  }
+
+  .video-yt, .video-ig{
+    display: block;
+    text-decoration: none;
+    border-radius: 12px;
+    overflow: hidden;
+    position: relative;
+  }
+  .video-yt img{ width: 100%; display: block; }
+  .video-yt .play{
+    position: absolute; top:50%; left:50%; transform: translate(-50%,-50%);
+    width: 56px; height: 56px; border-radius: 50%;
+    background: rgba(0,0,0,0.65);
+    display:flex; align-items:center; justify-content:center;
+    color:#fff; font-size: 22px;
+  }
+  .video-ig{
+    background: #111;
+    color: #fff;
+    padding: 28px;
+    text-align: center;
+    font-weight: 600;
+  }
+  .video-ig .ig-badge{
+    display:inline-block; margin-bottom:8px; font-size: 26px;
+  }
+  .no-video{ color: var(--ink-soft); font-size: 14px; }
+
+  .ingredient-row{
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+  .ingredient-row:last-child{ border-bottom: none; }
+  .ingredient-row .name{ font-weight: 600; text-transform: capitalize; }
+  .ingredient-row .macro-mini{ color: var(--ink-soft); font-size: 12.5px; }
+  .ingredient-row.unmatched .name{ color: #B23A3A; }
+  .ingredient-row.unmatched .macro-mini::after{ content: " (not found in food database)"; }
+
+  .steps-list{ margin: 0; padding-left: 20px; }
+  .steps-list li{ margin-bottom: 12px; line-height: 1.5; font-size: 14.5px; }
+  .steps-list li:last-child{ margin-bottom: 0; }
+
+  /* ===== Modal (Add Recipe / Settings) ===== */
+  .modal-overlay{
+    position: fixed; inset: 0;
+    background: rgba(20,20,18,0.45);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 60;
+    padding: 20px;
+  }
+  .modal{
+    background: var(--card);
+    border-radius: var(--radius);
+    width: 100%;
+    max-width: 520px;
+    max-height: 88vh;
+    overflow-y: auto;
+    padding: 26px;
+  }
+  .modal h2{ margin: 0 0 18px; font-size: 19px; }
+  .field{ margin-bottom: 16px; }
+  .field label{
+    display: block;
+    font-size: 12.5px;
+    font-weight: 700;
+    color: var(--ink-soft);
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .field input, .field textarea{
+    width: 100%;
+    padding: 10px 13px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    font-size: 14px;
+    font-family: inherit;
+    outline: none;
+    resize: vertical;
+  }
+  .field input:focus, .field textarea:focus{ border-color: var(--accent); }
+  .field .hint{ font-size: 12px; color: var(--ink-soft); margin-top: 5px; }
+  .live-macro-box{
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+    font-size: 13.5px;
+  }
+  .live-macro-box .cal-line{ font-weight: 700; margin-bottom: 6px; }
+  .live-macro-box .warn{ color: #B23A3A; font-size: 12.5px; margin-top: 6px; }
+  .modal-actions{
+    display: flex; gap: 10px; justify-content: flex-end; margin-top: 6px;
+  }
+  .btn{
+    padding: 10px 20px;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--ink);
+  }
+  .btn.primary{
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  .btn.primary:hover{ background: var(--accent-dark); }
+  .btn.text{ border: none; background: none; color: var(--ink-soft); }
+
+  @media (max-width: 640px){
+    .header{ padding: 18px 16px 0; }
+    .content{ padding: 16px 16px 120px; }
+    .filters-panel{ margin: 16px 16px 0; padding: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="loadingScreen">
+  <div class="spinner"></div>
+  <div class="msg" id="loadingMsg">Loading recipes…</div>
+</div>
+
+<div class="header">
+  <div class="brand">🥦 NutriRecipes</div>
+  <div class="header-actions">
+    <div class="search-box">
+      <span class="icon">🔍</span>
+      <input type="text" id="searchInput" placeholder="Search recipes…" oninput="onSearch(this.value)">
+    </div>
+    <button class="icon-btn" title="Refresh recipes" onclick="refreshData()">↻</button>
+  </div>
+</div>
+
+<div id="app"></div>
+
+<script>
+/* ============ EMBEDDED FOOD DATABASE (from Diet_Chart_App_Macros.xlsx) ============ */
+const FOOD_DB_DEFAULT = [{"food_item":"paneer","quantity":28.0,"fat":7.0,"carbs":0.0,"protein":7.0,"calories":91.0},{"food_item":"rice","quantity":45.0,"fat":0.0,"carbs":35.0,"protein":3.0,"calories":152.0},{"food_item":"peanut butter","quantity":32.0,"fat":15.0,"carbs":5.0,"protein":7.0,"calories":183.0},{"food_item":"ghee","quantity":14.0,"fat":14.0,"carbs":0.0,"protein":0.0,"calories":126.0},{"food_item":"egg","quantity":1.0,"fat":5.0,"carbs":0.0,"protein":6.0,"calories":69.0},{"food_item":"toor dal","quantity":51.0,"fat":1.0,"carbs":32.0,"protein":11.0,"calories":181.0},{"food_item":"hummus","quantity":71.0,"fat":13.0,"carbs":9.0,"protein":4.0,"calories":169.0},{"food_item":"bread","quantity":1.0,"fat":1.0,"carbs":16.0,"protein":3.0,"calories":85.0},{"food_item":"whey","quantity":31.0,"fat":1.0,"carbs":3.0,"protein":24.0,"calories":117.0},{"food_item":"ketchup","quantity":17.0,"fat":0.0,"carbs":5.0,"protein":0.0,"calories":20.0},{"food_item":"veggies","quantity":100.0,"fat":0.0,"carbs":9.0,"protein":3.0,"calories":48.0},{"food_item":"milk","quantity":240.0,"fat":9.0,"carbs":11.0,"protein":8.0,"calories":157.0},{"food_item":"roasted dalia split","quantity":30.0,"fat":1.5,"carbs":17.0,"protein":7.0,"calories":109.5},{"food_item":"chicken","quantity":100.0,"fat":4.0,"carbs":0.0,"protein":23.0,"calories":128.0},{"food_item":"tomato","quantity":100.0,"fat":0.0,"carbs":4.0,"protein":1.0,"calories":20.0},{"food_item":"onion","quantity":100.0,"fat":0.0,"carbs":9.0,"protein":1.0,"calories":40.0},{"food_item":"egg white","quantity":1.0,"fat":0.0,"carbs":0.0,"protein":3.0,"calories":12.0},{"food_item":"sauce","quantity":15.0,"fat":0.0,"carbs":15.0,"protein":0.0,"calories":60.0},{"food_item":"daisy cottage cheese","quantity":113.0,"fat":5.0,"carbs":3.5,"protein":13.0,"calories":111.0},{"food_item":"soya mini chunks (nutrela)","quantity":100.0,"fat":0.5,"carbs":33.0,"protein":52.0,"calories":344.5},{"food_item":"chobani plain non fat greek yogurt","quantity":150.0,"fat":0.0,"carbs":6.0,"protein":14.0,"calories":80.0},{"food_item":"moong dal fittr","quantity":100.0,"fat":0.0,"carbs":63.0,"protein":24.0,"calories":348.0},{"food_item":"almonds/cashew/walnuts","quantity":30.0,"fat":15.0,"carbs":6.0,"protein":6.0,"calories":183.0},{"food_item":"walmart buns","quantity":1.0,"fat":2.0,"carbs":20.0,"protein":3.0,"calories":110.0},{"food_item":"cheese","quantity":30.0,"fat":10.0,"carbs":0.0,"protein":7.0,"calories":118.0},{"food_item":"avocado","quantity":30.0,"fat":5.0,"carbs":3.0,"protein":1.0,"calories":61.0},{"food_item":"strawberries","quantity":100.0,"fat":0.0,"carbs":8.0,"protein":0.0,"calories":32.0},{"food_item":"costco rollups","quantity":1.0,"fat":3.5,"carbs":10.0,"protein":7.0,"calories":99.5},{"food_item":"mushrooms","quantity":100.0,"fat":0.0,"carbs":6.0,"protein":3.0,"calories":36.0},{"food_item":"banana","quantity":126.0,"fat":0.0,"carbs":30.0,"protein":0.0,"calories":120.0},{"food_item":"protein bar kirkland","quantity":1.0,"fat":7.0,"carbs":11.0,"protein":21.0,"calories":191.0},{"food_item":"wheat flour","quantity":100.0,"fat":1.0,"carbs":74.0,"protein":10.0,"calories":345.0},{"food_item":"orange","quantity":100.0,"fat":0.0,"carbs":12.0,"protein":0.0,"calories":48.0},{"food_item":"maramaraalu","quantity":30.0,"fat":1.0,"carbs":26.0,"protein":2.0,"calories":121.0},{"food_item":"the only bean","quantity":30.0,"fat":6.0,"carbs":5.0,"protein":14.0,"calories":130.0},{"food_item":"sooji","quantity":40.0,"fat":0.0,"carbs":28.0,"protein":5.0,"calories":132.0},{"food_item":"sola bread","quantity":1.0,"fat":1.5,"carbs":3.0,"protein":4.0,"calories":41.5},{"food_item":"sweet potato","quantity":100.0,"fat":0.0,"carbs":20.0,"protein":1.5,"calories":86.0},{"food_item":"semolina","quantity":100.0,"fat":1.0,"carbs":66.0,"protein":9.0,"calories":309.0},{"food_item":"urad dal","quantity":100.0,"fat":1.5,"carbs":57.0,"protein":25.0,"calories":341.5},{"food_item":"quinoa","quantity":44.0,"fat":2.5,"carbs":28.0,"protein":6.0,"calories":158.5},{"food_item":"chickpeas","quantity":12.5,"fat":0.8,"carbs":8.0,"protein":2.4,"calories":48.8},{"food_item":"maggi","quantity":100.0,"fat":12.5,"carbs":59.6,"protein":8.2,"calories":383.7},{"food_item":"curd","quantity":60.0,"fat":1.32,"carbs":3.3,"protein":2.16,"calories":33.72},{"food_item":"fat free cheese","quantity":28.0,"fat":0.0,"carbs":2.0,"protein":9.0,"calories":44.0},{"food_item":"walmart low carb tortillas","quantity":1.0,"fat":3.0,"carbs":4.0,"protein":5.0,"calories":63.0},{"food_item":"sola bagel","quantity":1.0,"fat":3.5,"carbs":7.0,"protein":15.0,"calories":119.5},{"food_item":"mayo lite","quantity":30.0,"fat":7.0,"carbs":2.0,"protein":0.0,"calories":71.0},{"food_item":"veeba southwest","quantity":100.0,"fat":21.0,"carbs":14.5,"protein":3.0,"calories":259.0},{"food_item":"all-purpose flour","quantity":100.0,"fat":1.0,"carbs":76.0,"protein":10.0,"calories":353.0},{"food_item":"great value tomato paste","quantity":33.0,"fat":0.0,"carbs":6.0,"protein":1.0,"calories":28.0},{"food_item":"sesame seeds","quantity":14.0,"fat":9.0,"carbs":2.0,"protein":3.0,"calories":101.0},{"food_item":"costco croissants","quantity":1.0,"fat":17.0,"carbs":30.0,"protein":6.0,"calories":297.0},{"food_item":"great value bread crumbs","quantity":28.0,"fat":1.5,"carbs":18.0,"protein":4.0,"calories":101.5},{"food_item":"desi ntural low fat paneer","quantity":100.0,"fat":9.0,"carbs":2.0,"protein":18.0,"calories":161.0},{"food_item":"cheese cream","quantity":28.0,"fat":9.0,"carbs":2.0,"protein":2.0,"calories":97.0},{"food_item":"millet dosa batter","quantity":60.0,"fat":1.0,"carbs":30.0,"protein":8.0,"calories":161.0},{"food_item":"quaker old fashioned oats","quantity":40.0,"fat":3.0,"carbs":27.0,"protein":5.0,"calories":155.0},{"food_item":"sunflower seeds","quantity":28.0,"fat":16.0,"carbs":5.0,"protein":6.0,"calories":188.0},{"food_item":"buffalo milk","quantity":100.0,"fat":6.5,"carbs":5.0,"protein":3.1,"calories":90.9},{"food_item":"walmart protein wrap","quantity":1.0,"fat":3.0,"carbs":3.0,"protein":7.0,"calories":67.0},{"food_item":"puffed rice","quantity":50.0,"fat":0.0,"carbs":42.0,"protein":5.0,"calories":188.0},{"food_item":"house foods tofu","quantity":85.0,"fat":4.0,"carbs":1.5,"protein":7.0,"calories":70.0},{"food_item":"priya mango pickle","quantity":30.0,"fat":4.0,"carbs":4.0,"protein":1.0,"calories":56.0},{"food_item":"great value reduced fat cheese","quantity":28.0,"fat":5.0,"carbs":1.0,"protein":7.0,"calories":77.0},{"food_item":"great value milk","quantity":240.0,"fat":8.0,"carbs":12.0,"protein":8.0,"calories":152.0},{"food_item":"costco pasta","quantity":56.0,"fat":2.0,"carbs":33.0,"protein":12.0,"calories":198.0},{"food_item":"desi natural yogurt","quantity":170.0,"fat":5.0,"carbs":10.0,"protein":7.0,"calories":113.0},{"food_item":"potato","quantity":100.0,"fat":0.1,"carbs":17.0,"protein":2.0,"calories":76.9},{"food_item":"peas","quantity":97.0,"fat":1.0,"carbs":13.0,"protein":5.0,"calories":81.0},{"food_item":"peanut","quantity":100.0,"fat":49.0,"carbs":9.0,"protein":26.0,"calories":581.0},{"food_item":"saffola masala oats","quantity":38.0,"fat":3.0,"carbs":24.0,"protein":3.5,"calories":137.0},{"food_item":"chia seeds","quantity":13.0,"fat":4.5,"carbs":4.0,"protein":3.0,"calories":68.5},{"food_item":"kirkland tofu","quantity":85.0,"fat":5.0,"carbs":3.75,"protein":10.0,"calories":100.0},{"food_item":"besan","quantity":100.0,"fat":5.0,"carbs":59.0,"protein":20.0,"calories":361.0},{"food_item":"rice flour","quantity":150.0,"fat":1.0,"carbs":126.0,"protein":11.0,"calories":557.0},{"food_item":"veg hakka noodles","quantity":90.0,"fat":0.9,"carbs":70.38,"protein":11.4,"calories":335.22},{"food_item":"ragi flour","quantity":100.0,"fat":1.89,"carbs":72.26,"protein":7.56,"calories":336.29},{"food_item":"barilla protein penne","quantity":56.0,"fat":1.0,"carbs":35.0,"protein":10.0,"calories":189.0},{"food_item":"ripple milk","quantity":240.0,"fat":4.5,"carbs":1.0,"protein":8.0,"calories":76.5},{"food_item":"costco keto wrap","quantity":1.0,"fat":1.5,"carbs":7.5,"protein":4.0,"calories":59.5},{"food_item":"dosa batter","quantity":56.0,"fat":0.0,"carbs":15.0,"protein":4.0,"calories":76.0},{"food_item":"premier protein cereal","quantity":42.0,"fat":5.0,"carbs":14.0,"protein":20.0,"calories":181.0},{"food_item":"mixture","quantity":30.0,"fat":12.0,"carbs":10.0,"protein":6.0,"calories":172.0},{"food_item":"ground lupin","quantity":40.0,"fat":2.5,"carbs":11.0,"protein":16.0,"calories":130.5},{"food_item":"flapjacked protein pancake","quantity":55.0,"fat":4.0,"carbs":24.0,"protein":20.0,"calories":212.0},{"food_item":"kodiak oats","quantity":50.0,"fat":2.5,"carbs":30.0,"protein":12.0,"calories":190.5},{"food_item":"vegetable reduced fat cream cheese","quantity":31.0,"fat":5.0,"carbs":2.0,"protein":3.0,"calories":65.0},{"food_item":"loven protein wrap","quantity":1.0,"fat":3.5,"carbs":7.75,"protein":12.0,"calories":110.5},{"food_item":"tofu","quantity":85.0,"fat":7.0,"carbs":2.0,"protein":12.0,"calories":119.0},{"food_item":"chobani flavoured greek yogurt","quantity":150.0,"fat":0.0,"carbs":16.0,"protein":11.0,"calories":108.0},{"food_item":"apple/guava/pineapple/watermelon/grapes","quantity":200.0,"fat":0.0,"carbs":30.0,"protein":2.0,"calories":128.0},{"food_item":"simply nature pasta","quantity":56.0,"fat":3.0,"carbs":13.0,"protein":25.0,"calories":179.0},{"food_item":"edmame beans","quantity":100.0,"fat":5.0,"carbs":8.0,"protein":11.0,"calories":121.0},{"food_item":"corn","quantity":100.0,"fat":1.0,"carbs":16.0,"protein":3.0,"calories":85.0}];
+
+/* Aliases: friendly ingredient names -> exact food_item in the database */
+const ALIASES = {
+  "fruits": "apple/guava/pineapple/watermelon/grapes",
+  "fruit": "apple/guava/pineapple/watermelon/grapes",
+  "greek yogurt": "chobani plain non fat greek yogurt",
+  "yogurt": "chobani plain non fat greek yogurt",
+  "protein bar": "protein bar kirkland",
+  "oats": "quaker old fashioned oats",
+  "nuts": "almonds/cashew/walnuts",
+  "dal": "toor dal",
+  "flour": "wheat flour"
+};
+
+/* ============ STARTER RECIPES (hardcoded fallback) ============ */
+const STARTER_RECIPES = [
+  { id: 1, name: "Classic Lunch Bowl", icon: "🍚", video_url: "",
+    ingredients: "75 g rice | 2 egg | 10 g ghee | 100 g veggies",
+    steps: "Cook the rice until tender and fluff with a fork. | Fry the eggs in the ghee until set. | Sauté the veggies until just tender. | Combine everything in a bowl and serve warm." },
+  { id: 2, name: "High Protein Breakfast", icon: "🍳", video_url: "",
+    ingredients: "10 egg white | 31 g whey | 150 g greek yogurt",
+    steps: "Scramble the egg whites in a nonstick pan over medium heat. | Whisk the whey into the greek yogurt until smooth. | Serve the scrambled egg whites alongside the whey yogurt." },
+  { id: 3, name: "Pre-Workout Fuel", icon: "🥤", video_url: "",
+    ingredients: "150 g fruits | 240 g ripple milk | 50 g whey",
+    steps: "Chop the fruit into small pieces. | Blend the fruit, ripple milk, and whey until smooth. | Drink 30–45 minutes before training." },
+  { id: 4, name: "Post-Workout Recovery", icon: "🍓", video_url: "",
+    ingredients: "100 g strawberries | 1 protein bar",
+    steps: "Rinse and slice the strawberries. | Pair with a protein bar for a fast recovery snack." },
+  { id: 5, name: "Paneer Protein Bowl", icon: "🧀", video_url: "",
+    ingredients: "100 g paneer | 100 g veggies | 100 g tomato | 60 g curd",
+    steps: "Pan-sear the paneer cubes until lightly golden. | Sauté the veggies and tomato together. | Combine with paneer and top with a spoon of curd." },
+  { id: 6, name: "Oats & Yogurt Bowl", icon: "🥣", video_url: "",
+    ingredients: "40 g oats | 150 g greek yogurt | 126 g banana",
+    steps: "Soak the oats in water or milk overnight, or cook briefly on the stove. | Slice the banana. | Top the oats with greek yogurt and banana." },
+  { id: 7, name: "Chicken & Veggies", icon: "🍗", video_url: "",
+    ingredients: "150 g chicken | 100 g veggies | 100 g tomato | 14 g ghee",
+    steps: "Season the chicken and cook in ghee until fully cooked through. | Sauté the veggies and tomato in the same pan. | Plate the chicken with the veggies." },
+  { id: 8, name: "Dinner Rice Bowl", icon: "🍛", video_url: "",
+    ingredients: "75 g rice | 2 egg | 14 g ghee | 100 g veggies",
+    steps: "Cook the rice and set aside. | Fry the eggs in ghee. | Warm the veggies through. | Assemble the bowl and serve." }
+];
+
+const BUCKET_SIZE = 100, BUCKET_COUNT = 10;
+const UNITS = ["g","kg","ml","l","cup","cups","tbsp","tsp","piece","pieces","pc","pcs"];
+
+/* ============ STATE ============ */
+let recipes = [];
+let foodDB = [];
+let state = { buckets: new Set(), tags: new Set(), search: "", view: { name: "grid" } };
+
+/* ============ MACRO ENGINE ============ */
+function parseIngredientLine(line){
+  const tokens = line.trim().split(/\s+/);
+  if(tokens.length < 2) return null;
+  const qty = parseFloat(tokens[0]);
+  if(isNaN(qty)) return null;
+  let name;
+  if(UNITS.includes(tokens[1].toLowerCase())){
+    name = tokens.slice(2).join(" ");
+  } else {
+    name = tokens.slice(1).join(" ");
+  }
+  return { qty, name: name.trim().toLowerCase(), raw: line.trim() };
+}
+
+function findFood(name){
+  if(ALIASES[name]){
+    const f = foodDB.find(f => f.food_item === ALIASES[name]);
+    if(f) return f;
+  }
+  let exact = foodDB.find(f => f.food_item === name);
+  if(exact) return exact;
+  let partial = foodDB.find(f => f.food_item.includes(name) || name.includes(f.food_item));
+  if(partial) return partial;
+  return null;
+}
+
+function calcMacros(ingredientsStr){
+  const lines = (ingredientsStr || "").split("|").map(s => s.trim()).filter(Boolean);
+  const totals = { calories: 0, fat: 0, carbs: 0, protein: 0 };
+  const details = [];
+  lines.forEach(line => {
+    const parsed = parseIngredientLine(line);
+    if(!parsed){ details.push({ raw: line, matched: false }); return; }
+    const food = findFood(parsed.name);
+    if(!food){ details.push({ ...parsed, matched: false }); return; }
+    const scale = parsed.qty / food.quantity;
+    const m = { calories: food.calories*scale, fat: food.fat*scale, carbs: food.carbs*scale, protein: food.protein*scale };
+    totals.calories += m.calories; totals.fat += m.fat; totals.carbs += m.carbs; totals.protein += m.protein;
+    details.push({ ...parsed, matched: true, macros: m, dbItem: food.food_item });
+  });
+  return { totals, details };
+}
+
+function r(n){ return Math.round(n); }
+
+/* ============ SUPABASE ============ */
+const SUPABASE_URL = "https://limssbrcututebxiemqd.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxpbXNzYnJjdXR1dGVieGllbXFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyOTA5NjUsImV4cCI6MjA5ODg2Njk2NX0.fMNKJ3rrcKvypIZGra9U4zXCvuQ-k9CSzjQ-EjJewK4";
+const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+async function loadFromSupabase(){
+  const [{ data: recipeRows, error: recipeErr }, { data: foodRows, error: foodErr }] = await Promise.all([
+    supabaseClient.from("recipes").select("*").order("id", { ascending: true }),
+    supabaseClient.from("food_items").select("*")
+  ]);
+  if(recipeErr) throw recipeErr;
+  if(foodErr) throw foodErr;
+
+  const parsedRecipes = (recipeRows || []).map(row => ({
+    id: row.id, name: row.name || "Untitled", icon: row.icon || "🍽️",
+    description: row.description || "", ingredients: row.ingredients || "",
+    steps: row.steps || "", video_url: row.video_url || ""
+  }));
+  const parsedFood = (foodRows || []).map(row => ({
+    food_item: String(row.food_item).trim().toLowerCase(),
+    quantity: Number(row.quantity) || 1, fat: Number(row.fat) || 0,
+    carbs: Number(row.carbs) || 0, protein: Number(row.protein) || 0, calories: Number(row.calories) || 0
+  }));
+  return { recipes: parsedRecipes, foodDB: parsedFood };
+}
+
+async function init(forceRefresh){
+  showLoading(true, "Loading recipes…");
+  let loaded = null;
+
+  try{
+    loaded = await loadFromSupabase();
+    if(loaded.recipes.length){
+      localStorage.setItem("nr_cache", JSON.stringify({ ...loaded, ts: Date.now() }));
+    } else {
+      loaded = null;
+    }
+  }catch(e){
+    console.warn("Supabase fetch failed, falling back:", e);
+    loaded = null;
+  }
+
+  if(!loaded && !forceRefresh){
+    const cached = localStorage.getItem("nr_cache");
+    if(cached){
+      try{ loaded = JSON.parse(cached); }catch(e){ loaded = null; }
+    }
+  }
+
+  if(!loaded || !loaded.recipes || !loaded.recipes.length){
+    loaded = { recipes: STARTER_RECIPES, foodDB: FOOD_DB_DEFAULT };
+  }
+
+  recipes = loaded.recipes;
+  foodDB = (loaded.foodDB && loaded.foodDB.length) ? loaded.foodDB : FOOD_DB_DEFAULT;
+  showLoading(false);
+  render();
+}
+
+function refreshData(){
+  init(true);
+}
+
+function showLoading(on, msg){
+  const el = document.getElementById("loadingScreen");
+  if(msg) document.getElementById("loadingMsg").textContent = msg;
+  el.style.display = on ? "flex" : "none";
+}
+
+/* ============ FILTER HELPERS ============ */
+function bucketIndex(cal){ return Math.min(Math.floor(cal / BUCKET_SIZE), BUCKET_COUNT - 1); }
+
+function bucketLabel(i){
+  const lo = i * BUCKET_SIZE, hi = (i+1) * BUCKET_SIZE;
+  return i === BUCKET_COUNT - 1 ? `${lo}+` : `${lo}–${hi}`;
+}
+
+function allIngredientTags(){
+  const set = new Set();
+  recipes.forEach(rc => {
+    (rc.ingredients || "").split("|").map(s => s.trim()).filter(Boolean).forEach(line => {
+      const parsed = parseIngredientLine(line);
+      if(!parsed) return;
+      const food = findFood(parsed.name);
+      const label = food ? food.food_item : parsed.name;
+      const shortLabel = label.split("/")[0].split("(")[0].trim();
+      if(shortLabel) set.add(shortLabel);
+    });
+  });
+  return [...set].sort();
+}
+
+function passesFilters(rc){
+  const totals = calcMacros(rc.ingredients).totals;
+  const bucketOk = state.buckets.size === 0 || state.buckets.has(bucketIndex(totals.calories));
+  const tagOk = state.tags.size === 0 || [...state.tags].some(tag => (rc.ingredients || "").toLowerCase().includes(tag));
+  const searchOk = !state.search || rc.name.toLowerCase().includes(state.search.toLowerCase());
+  return bucketOk && tagOk && searchOk;
+}
+
+/* ============ RENDER: GRID ============ */
+function renderGridView(){
+  const container = document.createElement("div");
+
+  const filterPanel = document.createElement("div");
+  filterPanel.className = "filters-panel";
+  filterPanel.innerHTML = `
+    <div class="filter-label">🔥 Calories per serving</div>
+    <div class="chip-row" id="bucketChips"></div>
+    <div class="filter-label">🥘 Main ingredient</div>
+    <div class="chip-row" id="tagChips"></div>
+  `;
+  container.appendChild(filterPanel);
+
+  const content = document.createElement("div");
+  content.className = "content";
+  const filtered = recipes.filter(passesFilters);
+  content.innerHTML = `<div class="result-count">Showing <b>${filtered.length}</b> of ${recipes.length} recipes</div>
+    <div class="grid" id="recipeGrid"></div>`;
+  container.appendChild(content);
+
+  document.getElementById("app").innerHTML = "";
+  document.getElementById("app").appendChild(container);
+
+  const bucketChips = document.getElementById("bucketChips");
+  for(let i = 0; i < BUCKET_COUNT; i++){
+    const chip = document.createElement("div");
+    chip.className = "chip" + (state.buckets.has(i) ? " active" : "");
+    chip.textContent = bucketLabel(i);
+    chip.onclick = () => { state.buckets.has(i) ? state.buckets.delete(i) : state.buckets.add(i); render(); };
+    bucketChips.appendChild(chip);
+  }
+
+  const tagChips = document.getElementById("tagChips");
+  allIngredientTags().forEach(tag => {
+    const chip = document.createElement("div");
+    chip.className = "chip" + (state.tags.has(tag) ? " active" : "");
+    chip.textContent = tag.charAt(0).toUpperCase() + tag.slice(1);
+    chip.onclick = () => { state.tags.has(tag) ? state.tags.delete(tag) : state.tags.add(tag); render(); };
+    tagChips.appendChild(chip);
+  });
+
+  const grid = document.getElementById("recipeGrid");
+  if(filtered.length === 0){
+    grid.innerHTML = `<div class="empty-state">
+      <h3>No recipes match those filters</h3>
+      <p>Try clearing a filter or your search.</p>
+      <button onclick="clearAllFilters()">Clear filters</button>
+    </div>`;
+    return;
+  }
+  filtered.forEach(rc => {
+    const totals = calcMacros(rc.ingredients).totals;
+    const card = document.createElement("div");
+    card.className = "card";
+    card.onclick = () => { state.view = { name: "detail", id: rc.id }; render(); };
+    card.innerHTML = `
+      <div class="card-icon">${rc.icon || "🍽️"}</div>
+      <div class="card-title">${rc.name}</div>
+      <div class="cal-pill">${r(totals.calories)} kcal</div>
+      <div class="macro-badges">
+        <span class="badge p">P ${r(totals.protein)}g</span>
+        <span class="badge c">C ${r(totals.carbs)}g</span>
+        <span class="badge f">F ${r(totals.fat)}g</span>
+      </div>`;
+    grid.appendChild(card);
+  });
+}
+
+function clearAllFilters(){
+  state.buckets.clear(); state.tags.clear(); state.search = "";
+  document.getElementById("searchInput").value = "";
+  render();
+}
+
+function onSearch(v){ state.search = v; render(); }
+
+/* ============ RENDER: DETAIL ============ */
+function youtubeId(url){
+  const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([a-zA-Z0-9_-]{6,})/);
+  return m ? m[1] : null;
+}
+
+function renderVideoBlock(url){
+  if(!url) return `<div class="no-video">No video added yet.</div>`;
+  const ytId = youtubeId(url);
+  if(ytId){
+    return `<a class="video-yt" href="${url}" target="_blank" rel="noopener">
+      <img src="https://img.youtube.com/vi/${ytId}/hqdefault.jpg" alt="Video thumbnail">
+      <span class="play">▶</span>
+    </a>`;
+  }
+  if(url.includes("instagram.com")){
+    return `<a class="video-ig" href="${url}" target="_blank" rel="noopener">
+      <span class="ig-badge">📷</span><br>View on Instagram
+    </a>`;
+  }
+  return `<a class="video-ig" href="${url}" target="_blank" rel="noopener">▶ Watch video</a>`;
+}
+
+function renderDetailView(id){
+  const rc = recipes.find(x => String(x.id) === String(id));
+  const container = document.createElement("div");
+  container.className = "content";
+  if(!rc){
+    container.innerHTML = `<button class="back-btn" onclick="goHome()">← Back</button><p>Recipe not found.</p>`;
+    document.getElementById("app").innerHTML = ""; document.getElementById("app").appendChild(container);
+    return;
+  }
+  const { totals, details } = calcMacros(rc.ingredients);
+  const steps = (rc.steps || "").split("|").map(s => s.trim()).filter(Boolean);
+
+  container.innerHTML = `
+    <button class="back-btn" onclick="goHome()">← Back to recipes</button>
+    <div class="detail-hero">
+      <div class="card-icon" style="margin:0 auto 10px;">${rc.icon || "🍽️"}</div>
+      <h1>${rc.name}</h1>
+      <div class="cal-pill">${r(totals.calories)} kcal</div>
+      <div class="macro-badges">
+        <span class="badge p">Protein ${r(totals.protein)}g</span>
+        <span class="badge c">Carbs ${r(totals.carbs)}g</span>
+        <span class="badge f">Fat ${r(totals.fat)}g</span>
+      </div>
+    </div>
+    <div class="section-block">
+      <h2>Video</h2>
+      ${renderVideoBlock(rc.video_url)}
+    </div>
+    <div class="section-block">
+      <h2>Ingredients</h2>
+      ${details.map(d => `
+        <div class="ingredient-row ${d.matched ? "" : "unmatched"}">
+          <span class="name">${d.raw || (d.qty + " " + d.name)}</span>
+          <span class="macro-mini">${d.matched ? r(d.macros.calories) + " kcal" : ""}</span>
+        </div>`).join("") || "<p>No ingredients listed.</p>"}
+    </div>
+    <div class="section-block">
+      <h2>Steps</h2>
+      ${steps.length ? `<ol class="steps-list">${steps.map(s => `<li>${s}</li>`).join("")}</ol>` : "<p>No steps listed.</p>"}
+    </div>
+  `;
+  document.getElementById("app").innerHTML = "";
+  document.getElementById("app").appendChild(container);
+}
+
+function goHome(){ state.view = { name: "grid" }; render(); }
+
+/* ============ ADMIN ADD/EDIT (deferred — managed via Supabase Table Editor for now) ============ */
+
+/* ============ MASTER RENDER ============ */
+function render(){
+  if(state.view.name === "grid") renderGridView();
+  else if(state.view.name === "detail") renderDetailView(state.view.id);
+}
+
+init();
+</script>
+</body>
+</html>
