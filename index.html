@@ -219,6 +219,11 @@
     font-size: 30px;
     display: flex; align-items:center; justify-content:center;
     margin: 0 auto 12px;
+    overflow: hidden;
+  }
+  .card-thumb-img{
+    width: 100%; height: 100%;
+    object-fit: cover;
   }
   .card-title{
     font-size: 16px;
@@ -520,6 +525,12 @@ function findFood(name){
   }
   let exact = foodDB.find(f => f.food_item === name);
   if(exact) return exact;
+  // Combined-option names like "rice/wheat flour/quinoa/semiya" — match if the
+  // ingredient name equals the FIRST listed option. This is checked before the
+  // loose substring fallback so it can't be shadowed by an unrelated item
+  // (e.g. "rice flour") that also happens to contain the same substring.
+  let firstOptionMatch = foodDB.find(f => f.food_item.split("/")[0].trim() === name);
+  if(firstOptionMatch) return firstOptionMatch;
   let partial = foodDB.find(f => f.food_item.includes(name) || name.includes(f.food_item));
   if(partial) return partial;
   return null;
@@ -552,7 +563,7 @@ const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 async function loadFromSupabase(){
   const [{ data: recipeRows, error: recipeErr }, { data: foodRows, error: foodErr }] = await Promise.all([
     supabaseClient.from("recipes").select("*").order("id", { ascending: true }),
-    supabaseClient.from("food_items").select("*")
+    supabaseClient.from("food_items").select("*").order("id", { ascending: true })
   ]);
   if(recipeErr) throw recipeErr;
   if(foodErr) throw foodErr;
@@ -560,7 +571,7 @@ async function loadFromSupabase(){
   const parsedRecipes = (recipeRows || []).map(row => ({
     id: row.id, name: row.name || "Untitled", icon: row.icon || "🍽️",
     description: row.description || "", ingredients: row.ingredients || "",
-    steps: row.steps || "", video_url: row.video_url || ""
+    steps: row.steps || "", video_url: row.video_url || "", thumbnail_url: row.thumbnail_url || ""
   }));
   const parsedFood = (foodRows || []).map(row => ({
     food_item: String(row.food_item).trim().toLowerCase(),
@@ -733,7 +744,7 @@ function renderGridView(){
     card.className = "card";
     card.onclick = () => { state.view = { name: "detail", id: rc.id }; render(); };
     card.innerHTML = `
-      <div class="card-icon">${rc.icon || "🍽️"}</div>
+      <div class="card-icon">${cardThumb(rc)}</div>
       <div class="card-title">${rc.name}</div>
       <div class="cal-pill">${r(totals.calories)} kcal</div>
       <div class="macro-badges">
@@ -755,8 +766,16 @@ function onSearch(v){ state.search = v; render(); }
 
 /* ============ RENDER: DETAIL ============ */
 function youtubeId(url){
+  if(!url) return null;
   const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([a-zA-Z0-9_-]{6,})/);
   return m ? m[1] : null;
+}
+
+function cardThumb(rc){
+  if(rc.thumbnail_url) return `<img class="card-thumb-img" src="${rc.thumbnail_url}" alt="">`;
+  const ytId = youtubeId(rc.video_url);
+  if(ytId) return `<img class="card-thumb-img" src="https://img.youtube.com/vi/${ytId}/hqdefault.jpg" alt="">`;
+  return rc.icon || "🍽️";
 }
 
 function renderVideoBlock(url){
@@ -791,7 +810,7 @@ function renderDetailView(id){
   container.innerHTML = `
     <button class="back-btn" onclick="goHome()">← Back to recipes</button>
     <div class="detail-hero">
-      <div class="card-icon" style="margin:0 auto 10px;">${rc.icon || "🍽️"}</div>
+      <div class="card-icon" style="margin:0 auto 10px;">${cardThumb(rc)}</div>
       <h1>${rc.name}</h1>
       <div class="cal-pill">${r(totals.calories)} kcal</div>
       <div class="macro-badges">
