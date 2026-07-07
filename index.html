@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NutriRecipes</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#1D9E75">
+<link rel="apple-touch-icon" href="icon-192.png">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root{
@@ -105,6 +108,31 @@
     flex-shrink: 0;
   }
   .icon-btn:hover{ border-color: var(--accent); color: var(--accent); }
+
+  /* ===== Data source banners ===== */
+  .data-banner{
+    max-width: 1180px;
+    margin: 16px auto 0;
+    padding: 12px 18px;
+    border-radius: 12px;
+    font-size: 13.5px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .data-banner.warn{ background: #FFF6E5; color: #8A5A00; border: 1px solid #F0DBA0; }
+  .data-banner.error{ background: #FBEAEA; color: #B23A3A; border: 1px solid #F0BABA; }
+  .data-banner button{
+    border: 1px solid currentColor;
+    background: none;
+    color: inherit;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
 
   /* ===== Filters ===== */
   .filters-panel{
@@ -462,34 +490,6 @@ const ALIASES = {
   "flour": "wheat flour"
 };
 
-/* ============ STARTER RECIPES (hardcoded fallback) ============ */
-const STARTER_RECIPES = [
-  { id: 1, name: "Classic Lunch Bowl", icon: "🍚", video_url: "",
-    ingredients: "75 g rice | 2 egg | 10 g ghee | 100 g veggies",
-    steps: "Cook the rice until tender and fluff with a fork. | Fry the eggs in the ghee until set. | Sauté the veggies until just tender. | Combine everything in a bowl and serve warm." },
-  { id: 2, name: "High Protein Breakfast", icon: "🍳", video_url: "",
-    ingredients: "10 egg white | 31 g whey | 150 g greek yogurt",
-    steps: "Scramble the egg whites in a nonstick pan over medium heat. | Whisk the whey into the greek yogurt until smooth. | Serve the scrambled egg whites alongside the whey yogurt." },
-  { id: 3, name: "Pre-Workout Fuel", icon: "🥤", video_url: "",
-    ingredients: "150 g fruits | 240 g ripple milk | 50 g whey",
-    steps: "Chop the fruit into small pieces. | Blend the fruit, ripple milk, and whey until smooth. | Drink 30–45 minutes before training." },
-  { id: 4, name: "Post-Workout Recovery", icon: "🍓", video_url: "",
-    ingredients: "100 g strawberries | 1 protein bar",
-    steps: "Rinse and slice the strawberries. | Pair with a protein bar for a fast recovery snack." },
-  { id: 5, name: "Paneer Protein Bowl", icon: "🧀", video_url: "",
-    ingredients: "100 g paneer | 100 g veggies | 100 g tomato | 60 g curd",
-    steps: "Pan-sear the paneer cubes until lightly golden. | Sauté the veggies and tomato together. | Combine with paneer and top with a spoon of curd." },
-  { id: 6, name: "Oats & Yogurt Bowl", icon: "🥣", video_url: "",
-    ingredients: "40 g oats | 150 g greek yogurt | 126 g banana",
-    steps: "Soak the oats in water or milk overnight, or cook briefly on the stove. | Slice the banana. | Top the oats with greek yogurt and banana." },
-  { id: 7, name: "Chicken & Veggies", icon: "🍗", video_url: "",
-    ingredients: "150 g chicken | 100 g veggies | 100 g tomato | 14 g ghee",
-    steps: "Season the chicken and cook in ghee until fully cooked through. | Sauté the veggies and tomato in the same pan. | Plate the chicken with the veggies." },
-  { id: 8, name: "Dinner Rice Bowl", icon: "🍛", video_url: "",
-    ingredients: "75 g rice | 2 egg | 14 g ghee | 100 g veggies",
-    steps: "Cook the rice and set aside. | Fry the eggs in ghee. | Warm the veggies through. | Assemble the bowl and serve." }
-];
-
 const BUCKET_SIZE = 100, BUCKET_COUNT = 10;
 const UNITS = ["g","kg","ml","l","cup","cups","tbsp","tsp","piece","pieces","pc","pcs"];
 
@@ -570,6 +570,8 @@ async function loadFromSupabase(){
   return { recipes: parsedRecipes, foodDB: parsedFood };
 }
 
+let dataSource = "live"; // "live" | "cache" | "unavailable"
+
 async function init(forceRefresh){
   showLoading(true, "Loading recipes…");
   let loaded = null;
@@ -578,23 +580,33 @@ async function init(forceRefresh){
     loaded = await loadFromSupabase();
     if(loaded.recipes.length){
       localStorage.setItem("nr_cache", JSON.stringify({ ...loaded, ts: Date.now() }));
+      dataSource = "live";
     } else {
       loaded = null;
     }
   }catch(e){
-    console.warn("Supabase fetch failed, falling back:", e);
+    console.warn("Supabase fetch failed:", e);
     loaded = null;
   }
 
-  if(!loaded && !forceRefresh){
+  if(!loaded){
     const cached = localStorage.getItem("nr_cache");
     if(cached){
-      try{ loaded = JSON.parse(cached); }catch(e){ loaded = null; }
+      try{
+        loaded = JSON.parse(cached);
+        dataSource = "cache";
+      }catch(e){ loaded = null; }
     }
   }
 
   if(!loaded || !loaded.recipes || !loaded.recipes.length){
-    loaded = { recipes: STARTER_RECIPES, foodDB: FOOD_DB_DEFAULT };
+    // Genuinely nothing to show — do NOT silently substitute unrelated demo content.
+    recipes = [];
+    foodDB = FOOD_DB_DEFAULT;
+    dataSource = "unavailable";
+    showLoading(false);
+    render();
+    return;
   }
 
   recipes = loaded.recipes;
@@ -648,6 +660,18 @@ function passesFilters(rc){
 function renderGridView(){
   const container = document.createElement("div");
 
+  if(dataSource === "cache"){
+    const banner = document.createElement("div");
+    banner.className = "data-banner warn";
+    banner.innerHTML = `⚠️ Couldn't reach the live database just now — showing the last data saved on this device. <button onclick="refreshData()">Retry</button>`;
+    container.appendChild(banner);
+  } else if(dataSource === "unavailable"){
+    const banner = document.createElement("div");
+    banner.className = "data-banner error";
+    banner.innerHTML = `🔌 Couldn't load recipes right now. Check your connection and try again. <button onclick="refreshData()">Retry</button>`;
+    container.appendChild(banner);
+  }
+
   const filterPanel = document.createElement("div");
   filterPanel.className = "filters-panel";
   filterPanel.innerHTML = `
@@ -688,11 +712,19 @@ function renderGridView(){
 
   const grid = document.getElementById("recipeGrid");
   if(filtered.length === 0){
-    grid.innerHTML = `<div class="empty-state">
-      <h3>No recipes match those filters</h3>
-      <p>Try clearing a filter or your search.</p>
-      <button onclick="clearAllFilters()">Clear filters</button>
-    </div>`;
+    if(recipes.length === 0){
+      grid.innerHTML = `<div class="empty-state">
+        <h3>No recipes to show right now</h3>
+        <p>${dataSource === "unavailable" ? "We couldn't reach the recipe database." : "Nothing here yet."}</p>
+        <button onclick="refreshData()">Retry</button>
+      </div>`;
+    } else {
+      grid.innerHTML = `<div class="empty-state">
+        <h3>No recipes match those filters</h3>
+        <p>Try clearing a filter or your search.</p>
+        <button onclick="clearAllFilters()">Clear filters</button>
+      </div>`;
+    }
     return;
   }
   filtered.forEach(rc => {
@@ -800,6 +832,12 @@ function render(){
 }
 
 init();
+
+if("serviceWorker" in navigator){
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch((e) => console.warn("Service worker failed to register:", e));
+  });
+}
 </script>
 </body>
 </html>
