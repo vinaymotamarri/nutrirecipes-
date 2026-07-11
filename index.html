@@ -647,22 +647,28 @@ function bucketLabel(i){
 function allIngredientTags(){
   const set = new Set();
   recipes.forEach(rc => {
-    (rc.ingredients || "").split("|").map(s => s.trim()).filter(Boolean).forEach(line => {
-      const parsed = parseIngredientLine(line);
-      if(!parsed) return;
-      const food = findFood(parsed.name);
-      const label = food ? food.food_item : parsed.name;
-      const shortLabel = label.split("/")[0].split("(")[0].trim();
-      if(shortLabel) set.add(shortLabel);
-    });
+    recipeIngredientLabels(rc).forEach(label => set.add(label));
   });
   return [...set].sort();
+}
+
+function recipeIngredientLabels(rc){
+  const labels = new Set();
+  (rc.ingredients || "").split("|").map(s => s.trim()).filter(Boolean).forEach(line => {
+    const parsed = parseIngredientLine(line);
+    if(!parsed) return;
+    const food = findFood(parsed.name);
+    const label = food ? food.food_item : parsed.name;
+    const shortLabel = label.split("/")[0].split("(")[0].trim();
+    if(shortLabel) labels.add(shortLabel);
+  });
+  return labels;
 }
 
 function passesFilters(rc){
   const totals = calcMacros(rc.ingredients).totals;
   const bucketOk = state.buckets.size === 0 || state.buckets.has(bucketIndex(totals.calories));
-  const tagOk = state.tags.size === 0 || [...state.tags].some(tag => (rc.ingredients || "").toLowerCase().includes(tag));
+  const tagOk = state.tags.size === 0 || [...recipeIngredientLabels(rc)].some(label => state.tags.has(label));
   const searchOk = !state.search || rc.name.toLowerCase().includes(state.search.toLowerCase());
   return bucketOk && tagOk && searchOk;
 }
