@@ -665,11 +665,19 @@ function recipeIngredientLabels(rc){
   return labels;
 }
 
+function matchesSearch(rc, term){
+  if(!term) return true;
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const re = new RegExp("\\b" + escaped, "i");
+  if(re.test(rc.name)) return true;
+  return [...recipeIngredientLabels(rc)].some(label => re.test(label));
+}
+
 function passesFilters(rc){
   const totals = calcMacros(rc.ingredients).totals;
   const bucketOk = state.buckets.size === 0 || state.buckets.has(bucketIndex(totals.calories));
   const tagOk = state.tags.size === 0 || [...recipeIngredientLabels(rc)].some(label => state.tags.has(label));
-  const searchOk = !state.search || rc.name.toLowerCase().includes(state.search.toLowerCase());
+  const searchOk = matchesSearch(rc, state.search);
   return bucketOk && tagOk && searchOk;
 }
 
