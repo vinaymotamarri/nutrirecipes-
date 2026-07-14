@@ -275,6 +275,39 @@
     cursor: pointer;
   }
 
+  .add-to-chart-btn{
+    width: 100%;
+    margin-top: 12px;
+    padding: 8px 0;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--accent-dark);
+    font-weight: 600;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  .add-to-chart-btn:hover{ background: #E4EEE7; border-color: var(--accent); }
+
+  .meal-choice-row{ display: flex; gap: 8px; flex-wrap: wrap; }
+  .meal-choice-btn{
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    color: var(--ink);
+  }
+  .meal-choice-btn.active{ background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  .icon-x{
+    border: none; background: none; color: var(--ink-soft); cursor: pointer;
+    font-size: 13px; padding: 2px 4px; margin-left: 6px;
+  }
+  .icon-x:hover{ color: #B23A3A; }
+
   /* ===== FAB ===== */
   .fab{
     position: fixed;
@@ -444,6 +477,7 @@
   }
   .field input:focus, .field textarea:focus{ border-color: var(--accent); }
   .field .hint{ font-size: 12px; color: var(--ink-soft); margin-top: 5px; }
+  .hint{ font-size: 12.5px; color: var(--ink-soft); margin: 10px 0; }
   .live-macro-box{
     background: var(--bg);
     border: 1px solid var(--border);
@@ -496,6 +530,7 @@
       <span class="icon">🔍</span>
       <input type="text" id="searchInput" placeholder="Search recipes…" oninput="onSearch(this.value)">
     </div>
+    <button class="icon-btn" title="My diet chart" onclick="openDietChartView()">📅</button>
     <button class="icon-btn" title="Refresh recipes" onclick="refreshData()">↻</button>
   </div>
 </div>
@@ -795,7 +830,8 @@ function renderGridView(){
         <span class="badge p">P ${r(totals.protein)}g</span>
         <span class="badge c">C ${r(totals.carbs)}g</span>
         <span class="badge f">F ${r(totals.fat)}g</span>
-      </div>`;
+      </div>
+      <button class="add-to-chart-btn" onclick="event.stopPropagation(); openAddToChartModal(${rc.id})">+ Add to chart</button>`;
     grid.appendChild(card);
   });
 }
@@ -865,6 +901,7 @@ function renderDetailView(id){
         <span class="badge c">Carbs ${r(totals.carbs)}g</span>
         <span class="badge f">Fat ${r(totals.fat)}g</span>
       </div>
+      <button class="btn primary" style="margin-top:16px;" onclick="openAddToChartModal(${rc.id}, {calories:${totals.calories},protein:${totals.protein},carbs:${totals.carbs},fat:${totals.fat}})">+ Add to diet chart</button>
     </div>
     <div class="section-block">
       <h2>Video</h2>
@@ -928,12 +965,160 @@ function resetIngredientOverrides(){
 
 function goHome(){ state.view = { name: "grid" }; render(); }
 
+/* ============ DIET CHART (local only — no login, saved on this device) ============ */
+const MEAL_TYPES = ["Breakfast", "Lunch", "Dinner", "Snacks"];
+
+function loadDietChart(){
+  try{ return JSON.parse(localStorage.getItem("nr_diet_chart")) || []; }catch(e){ return []; }
+}
+function saveDietChartEntries(){
+  localStorage.setItem("nr_diet_chart", JSON.stringify(dietChartEntries));
+}
+let dietChartEntries = loadDietChart();
+
+function todayStr(){ return new Date().toISOString().slice(0,10); }
+
+function closeModal(id){
+  const el = document.getElementById(id);
+  if(el) el.remove();
+}
+
+let pendingAddToChart = null;
+
+function openAddToChartModal(recipeId, totals){
+  const rc = recipes.find(x => String(x.id) === String(recipeId));
+  if(!rc) return;
+  if(!totals) totals = calcMacros(rc.ingredients).totals;
+  pendingAddToChart = { recipe: rc, totals, meal: "Breakfast" };
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.id = "addToChartOverlay";
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>Add "${rc.name}" to your diet chart</h2>
+      <div class="field">
+        <label>Meal</label>
+        <div class="meal-choice-row" id="mealChoiceRow">
+          ${MEAL_TYPES.map((m,i) => `<button type="button" class="meal-choice-btn ${i===0?"active":""}" data-meal="${m}" onclick="selectMealChoice('${m}')">${m}</button>`).join("")}
+        </div>
+      </div>
+      <div class="field">
+        <label>Date</label>
+        <input type="date" id="addToChartDate" value="${todayStr()}">
+      </div>
+      <div class="hint">${r(totals.calories)} kcal · P${r(totals.protein)}g C${r(totals.carbs)}g F${r(totals.fat)}g will be logged for this entry.</div>
+      <div class="modal-actions">
+        <button class="btn text" onclick="closeModal('addToChartOverlay')">Cancel</button>
+        <button class="btn primary" onclick="confirmAddToChart()">Add</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+function selectMealChoice(meal){
+  pendingAddToChart.meal = meal;
+  document.querySelectorAll(".meal-choice-btn").forEach(b => b.classList.toggle("active", b.dataset.meal === meal));
+}
+
+function confirmAddToChart(){
+  const dateStr = document.getElementById("addToChartDate").value;
+  if(!dateStr){ alert("Pick a date first."); return; }
+  const { recipe, totals, meal } = pendingAddToChart;
+  dietChartEntries.push({
+    id: Date.now() + "_" + Math.random().toString(36).slice(2,7),
+    recipeId: recipe.id, recipeName: recipe.name, icon: recipe.icon,
+    meal, date: dateStr,
+    calories: totals.calories, protein: totals.protein, carbs: totals.carbs, fat: totals.fat
+  });
+  saveDietChartEntries();
+  closeModal("addToChartOverlay");
+  pendingAddToChart = null;
+  if(state.view.name === "dietchart") renderDietChartView();
+}
+
+function removeDietChartEntry(id){
+  dietChartEntries = dietChartEntries.filter(e => e.id !== id);
+  saveDietChartEntries();
+  renderDietChartView();
+}
+
+function openDietChartView(){
+  state.view = { name: "dietchart", date: todayStr() };
+  render();
+}
+
+function changeChartDate(delta){
+  const d = new Date(state.view.date + "T00:00:00");
+  d.setDate(d.getDate() + delta);
+  state.view.date = d.toISOString().slice(0,10);
+  renderDietChartView();
+}
+
+function setChartDate(val){
+  state.view.date = val;
+  renderDietChartView();
+}
+
+function renderDietChartView(){
+  const dateStr = state.view.date;
+  const dayEntries = dietChartEntries.filter(e => e.date === dateStr);
+  const dayTotals = dayEntries.reduce((t, e) => ({
+    calories: t.calories + e.calories, protein: t.protein + e.protein,
+    carbs: t.carbs + e.carbs, fat: t.fat + e.fat
+  }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+
+  const container = document.createElement("div");
+  container.className = "content";
+  container.innerHTML = `
+    <button class="back-btn" onclick="goHome()">← Back to recipes</button>
+    <div class="detail-hero" style="text-align:left; padding: 22px 24px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <button class="icon-btn" onclick="changeChartDate(-1)">←</button>
+          <input type="date" id="chartDateInput" value="${dateStr}" onchange="setChartDate(this.value)" style="border:1px solid var(--border); border-radius:9px; padding:8px 12px; font-weight:600;">
+          <button class="icon-btn" onclick="changeChartDate(1)">→</button>
+        </div>
+        <div class="macro-badges">
+          <span class="cal-pill">${r(dayTotals.calories)} kcal</span>
+          <span class="badge p">P ${r(dayTotals.protein)}g</span>
+          <span class="badge c">C ${r(dayTotals.carbs)}g</span>
+          <span class="badge f">F ${r(dayTotals.fat)}g</span>
+        </div>
+      </div>
+    </div>
+    ${MEAL_TYPES.map(meal => renderMealSection(meal, dayEntries.filter(e => e.meal === meal))).join("")}
+  `;
+  document.getElementById("app").innerHTML = "";
+  document.getElementById("app").appendChild(container);
+}
+
+function renderMealSection(meal, entries){
+  const subtotal = entries.reduce((t, e) => t + e.calories, 0);
+  return `
+    <div class="section-block">
+      <div style="display:flex; justify-content:space-between; align-items:baseline;">
+        <h2 style="margin:0;">${meal}</h2>
+        <span style="font-size:12.5px; color:var(--ink-soft);">${r(subtotal)} kcal</span>
+      </div>
+      ${entries.length ? entries.map(e => `
+        <div class="ingredient-row">
+          <span class="name">${e.icon || "🍽️"} ${e.recipeName}</span>
+          <span class="macro-mini">${r(e.calories)} kcal
+            <button class="icon-x" onclick="removeDietChartEntry('${e.id}')">✕</button>
+          </span>
+        </div>`).join("") : `<p style="color:var(--ink-soft); font-size:13.5px; margin: 8px 0 0;">Nothing added yet — find a recipe and tap "+ Add to chart."</p>`}
+    </div>`;
+}
+
 /* ============ ADMIN ADD/EDIT (deferred — managed via Supabase Table Editor for now) ============ */
 
 /* ============ MASTER RENDER ============ */
 function render(){
   if(state.view.name === "grid") renderGridView();
   else if(state.view.name === "detail") renderDetailView(state.view.id);
+  else if(state.view.name === "dietchart") renderDietChartView();
 }
 
 init();
