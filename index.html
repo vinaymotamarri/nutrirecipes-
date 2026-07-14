@@ -533,13 +533,15 @@ function parseIngredientLine(line){
   if(tokens.length < 2) return null;
   const qty = parseFloat(tokens[0]);
   if(isNaN(qty)) return null;
-  let name;
+  let name, unit;
   if(UNITS.includes(tokens[1].toLowerCase())){
+    unit = tokens[1].toLowerCase();
     name = tokens.slice(2).join(" ");
   } else {
+    unit = "pc";
     name = tokens.slice(1).join(" ");
   }
-  return { qty, name: name.trim().toLowerCase(), raw: line.trim() };
+  return { qty, name: name.trim().toLowerCase(), raw: line.trim(), unit };
 }
 
 function findFood(name){
@@ -890,12 +892,12 @@ function renderDetailView(id){
 }
 
 function renderIngredientRow(d){
-  const displayName = (d.dbItem || d.name || "").split("/")[0].split("(")[0].trim();
+  const displayName = (d.dbItem || d.name || "").split("(")[0].trim();
   return `
     <div class="ingredient-row-editable ${d.matched ? "" : "unmatched"}">
       <input type="number" class="ing-qty-input" value="${d.qty}" min="0" step="1"
         onchange="updateIngredientQty(${d.idx}, this.value)">
-      <span class="ing-unit">g/ml/pc</span>
+      <span class="ing-unit">${d.unit || "g"}</span>
       <input type="text" class="ing-name-input" list="foodOptionsDatalist" value="${displayName}"
         placeholder="type to swap, e.g. 'pan' for paneer options"
         onchange="updateIngredientFood(${d.idx}, this.value)">
