@@ -376,6 +376,30 @@
   .ingredient-row.unmatched .name{ color: #B23A3A; }
   .ingredient-row.unmatched .macro-mini::after{ content: " (not found in food database)"; }
 
+  .ingredient-row-editable{
+    display: grid;
+    grid-template-columns: 64px auto 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+  .ingredient-row-editable:last-child{ border-bottom: none; }
+  .ingredient-row-editable.unmatched{ color: #B23A3A; }
+  .ing-qty-input{
+    width: 100%; padding: 7px 8px; border-radius: 8px; border: 1px solid var(--border);
+    font-size: 13.5px; font-weight: 600; text-align: right;
+  }
+  .ing-qty-input:focus{ outline: 2px solid var(--accent); border-color: var(--accent); }
+  .ing-unit{ font-size: 11px; color: var(--ink-soft); }
+  .ing-name-input{
+    padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border);
+    font-size: 13.5px; font-weight: 600; text-transform: capitalize; background: var(--bg);
+    width: 100%;
+  }
+  .ing-name-input:focus{ outline: 2px solid var(--accent); border-color: var(--accent); }
+
   .steps-list{ margin: 0; padding-left: 20px; }
   .steps-list li{ margin-bottom: 12px; line-height: 1.5; font-size: 14.5px; }
   .steps-list li:last-child{ margin-bottom: 0; }
@@ -536,19 +560,23 @@ function findFood(name){
   return null;
 }
 
-function calcMacros(ingredientsStr){
+function calcMacros(ingredientsStr, overrides){
+  overrides = overrides || {};
   const lines = (ingredientsStr || "").split("|").map(s => s.trim()).filter(Boolean);
   const totals = { calories: 0, fat: 0, carbs: 0, protein: 0 };
   const details = [];
-  lines.forEach(line => {
+  lines.forEach((line, idx) => {
     const parsed = parseIngredientLine(line);
-    if(!parsed){ details.push({ raw: line, matched: false }); return; }
-    const food = findFood(parsed.name);
-    if(!food){ details.push({ ...parsed, matched: false }); return; }
-    const scale = parsed.qty / food.quantity;
+    if(!parsed){ details.push({ raw: line, matched: false, idx }); return; }
+    const ov = overrides[idx] || {};
+    const qty = (ov.qty !== undefined && ov.qty !== null && ov.qty !== "") ? Number(ov.qty) : parsed.qty;
+    const name = ov.name || parsed.name;
+    const food = findFood(name);
+    if(!food){ details.push({ ...parsed, qty, name, matched: false, idx }); return; }
+    const scale = qty / food.quantity;
     const m = { calories: food.calories*scale, fat: food.fat*scale, carbs: food.carbs*scale, protein: food.protein*scale };
     totals.calories += m.calories; totals.fat += m.fat; totals.carbs += m.carbs; totals.protein += m.protein;
-    details.push({ ...parsed, matched: true, macros: m, dbItem: food.food_item });
+    details.push({ ...parsed, qty, name, matched: true, macros: m, dbItem: food.food_item, idx });
   });
   return { totals, details };
 }
@@ -756,7 +784,7 @@ function renderGridView(){
     const totals = calcMacros(rc.ingredients).totals;
     const card = document.createElement("div");
     card.className = "card";
-    card.onclick = () => { state.view = { name: "detail", id: rc.id }; render(); };
+    card.onclick = () => { state.view = { name: "detail", id: rc.id, overrides: {} }; render(); };
     card.innerHTML = `
       <div class="card-icon">${cardThumb(rc)}</div>
       <div class="card-title">${rc.name}</div>
@@ -818,16 +846,19 @@ function renderDetailView(id){
     document.getElementById("app").innerHTML = ""; document.getElementById("app").appendChild(container);
     return;
   }
-  const { totals, details } = calcMacros(rc.ingredients);
+  if(!state.view.overrides) state.view.overrides = {};
+  const overrides = state.view.overrides;
+  const { totals, details } = calcMacros(rc.ingredients, overrides);
   const steps = (rc.steps || "").split("|").map(s => s.trim()).filter(Boolean);
+  const hasOverrides = Object.keys(overrides).length > 0;
 
   container.innerHTML = `
     <button class="back-btn" onclick="goHome()">← Back to recipes</button>
     <div class="detail-hero">
       <div class="card-icon" style="margin:0 auto 10px;">${cardThumb(rc)}</div>
       <h1>${rc.name}</h1>
-      <div class="cal-pill">${r(totals.calories)} kcal</div>
-      <div class="macro-badges">
+      <div class="cal-pill" id="heroCalPill">${r(totals.calories)} kcal</div>
+      <div class="macro-badges" id="heroMacroBadges">
         <span class="badge p">Protein ${r(totals.protein)}g</span>
         <span class="badge c">Carbs ${r(totals.carbs)}g</span>
         <span class="badge f">Fat ${r(totals.fat)}g</span>
@@ -838,12 +869,16 @@ function renderDetailView(id){
       ${renderVideoBlock(rc.video_url)}
     </div>
     <div class="section-block">
-      <h2>Ingredients</h2>
-      ${details.map(d => `
-        <div class="ingredient-row ${d.matched ? "" : "unmatched"}">
-          <span class="name">${d.raw || (d.qty + " " + d.name)}</span>
-          <span class="macro-mini">${d.matched ? r(d.macros.calories) + " kcal" : ""}</span>
-        </div>`).join("") || "<p>No ingredients listed.</p>"}
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+        <h2 style="margin:0;">Ingredients — adjust to fit your portion</h2>
+        ${hasOverrides ? `<button class="btn small" onclick="resetIngredientOverrides()">↺ Reset to original</button>` : ""}
+      </div>
+      <div id="ingredientRows">
+        <datalist id="foodOptionsDatalist">
+          ${foodDB.map(f => `<option value="${f.food_item}">`).join("")}
+        </datalist>
+        ${details.map(d => renderIngredientRow(d)).join("") || "<p>No ingredients listed.</p>"}
+      </div>
     </div>
     <div class="section-block">
       <h2>Steps</h2>
@@ -852,6 +887,41 @@ function renderDetailView(id){
   `;
   document.getElementById("app").innerHTML = "";
   document.getElementById("app").appendChild(container);
+}
+
+function renderIngredientRow(d){
+  const displayName = (d.dbItem || d.name || "").split("/")[0].split("(")[0].trim();
+  return `
+    <div class="ingredient-row-editable ${d.matched ? "" : "unmatched"}">
+      <input type="number" class="ing-qty-input" value="${d.qty}" min="0" step="1"
+        onchange="updateIngredientQty(${d.idx}, this.value)">
+      <span class="ing-unit">g/ml/pc</span>
+      <input type="text" class="ing-name-input" list="foodOptionsDatalist" value="${displayName}"
+        placeholder="type to swap, e.g. 'pan' for paneer options"
+        onchange="updateIngredientFood(${d.idx}, this.value)">
+      <span class="macro-mini">${d.matched ? r(d.macros.calories) + " kcal" : "not found"}</span>
+    </div>`;
+}
+
+function updateIngredientQty(idx, val){
+  if(!state.view.overrides) state.view.overrides = {};
+  if(!state.view.overrides[idx]) state.view.overrides[idx] = {};
+  state.view.overrides[idx].qty = val;
+  renderDetailView(state.view.id);
+}
+
+function updateIngredientFood(idx, val){
+  if(!state.view.overrides) state.view.overrides = {};
+  if(!state.view.overrides[idx]) state.view.overrides[idx] = {};
+  const cleaned = (val || "").trim().toLowerCase();
+  if(cleaned) state.view.overrides[idx].name = cleaned;
+  else delete state.view.overrides[idx].name;
+  renderDetailView(state.view.id);
+}
+
+function resetIngredientOverrides(){
+  state.view.overrides = {};
+  renderDetailView(state.view.id);
 }
 
 function goHome(){ state.view = { name: "grid" }; render(); }
