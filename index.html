@@ -77,6 +77,23 @@
     justify-content: flex-end;
     min-width: 260px;
   }
+  .diet-chart-nav-btn{
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 11px 20px;
+    border-radius: 999px;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .diet-chart-nav-btn:hover{ background: var(--accent-dark); }
+  .diet-chart-nav-btn .dc-icon{ width: 20px; height: 20px; flex-shrink: 0; }
   .search-box{
     flex: 1;
     max-width: 360px;
@@ -525,12 +542,27 @@
 
 <div class="header">
   <div class="brand">🥦 NutriRecipes</div>
+  <button class="diet-chart-nav-btn" onclick="openDietChartView()">
+    <svg class="dc-icon" viewBox="0 0 42 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="4" y="6" width="20" height="28" rx="3" stroke="currentColor" stroke-width="1.8"/>
+      <rect x="10.5" y="3" width="7" height="4.5" rx="1.5" stroke="currentColor" stroke-width="1.8"/>
+      <rect x="7" y="10" width="4" height="4" rx="0.7" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="13" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      <rect x="7" y="16" width="4" height="4" rx="0.7" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="13" y1="18" x2="19" y2="18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      <rect x="7" y="22" width="4" height="4" rx="0.7" stroke="currentColor" stroke-width="1.5"/>
+      <line x1="13" y1="24" x2="19" y2="24" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+      <path d="M31.5 24 C29 21 26 20 25 21 C22.5 23.5 22.5 29 24.5 32.5 C26.5 36 29 37.5 31.5 37.5 C34 37.5 36.5 36 38.5 32.5 C40.5 29 40.5 23.5 38 21 C37 20 34 21 31.5 24 Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+      <path d="M31.5 24 C31.3 21 31 19 32.5 17.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M32.5 18 C34 16.5 37 16.8 37.5 19 C35.5 19.8 33.5 19.6 32.5 18 Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+    </svg>
+    Diet chart
+  </button>
   <div class="header-actions">
     <div class="search-box">
       <span class="icon">🔍</span>
       <input type="text" id="searchInput" placeholder="Search recipes…" oninput="onSearch(this.value)">
     </div>
-    <button class="icon-btn" title="My diet chart" onclick="openDietChartView()">📅</button>
     <button class="icon-btn" title="Refresh recipes" onclick="refreshData()">↻</button>
   </div>
 </div>
