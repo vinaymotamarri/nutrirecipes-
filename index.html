@@ -457,9 +457,17 @@
   .diary-date-heading{ font-size: 28px; margin: 2px 0 20px; }
 
   .macro-summary-card{
+    position: relative;
     background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
     padding: 24px; margin-bottom: 24px; display: flex; align-items: flex-start; gap: 40px; flex-wrap: wrap;
   }
+  .edit-goals-btn{
+    position: absolute; top: 20px; right: 20px;
+    display: flex; align-items: center; gap: 6px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 999px;
+    padding: 8px 16px; font-weight: 600; font-size: 13px; color: var(--ink); cursor: pointer;
+  }
+  .edit-goals-btn:hover{ border-color: var(--accent); color: var(--accent-dark); background: #E4EEE7; }
   .kcal-remaining-block{ min-width: 220px; }
   .kcal-remaining-num{ font-size: 40px; font-weight: 800; line-height: 1; }
   .kcal-remaining-label{ font-size: 11.5px; font-weight: 700; letter-spacing: 0.06em; color: var(--ink-soft); margin: 4px 0 6px; }
@@ -470,7 +478,7 @@
   .meal-legend-row span:nth-child(2){ flex: 1; color: var(--ink); }
   .meal-legend-kcal{ color: var(--ink-soft); }
   .meal-dot{ width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .macro-bars{ flex: 1; min-width: 220px; }
+  .macro-bars{ flex: 1; min-width: 220px; padding-top: 40px; }
   .macro-bar-row{ margin-bottom: 14px; }
   .macro-bar-row:last-of-type{ margin-bottom: 0; }
   .macro-bar-head{ display: flex; justify-content: space-between; font-size: 13.5px; font-weight: 600; margin-bottom: 6px; }
@@ -492,6 +500,7 @@
   }
   .diary-entry-name{ font-weight: 600; font-size: 14.5px; }
   .diary-entry-sub{ font-size: 12.5px; color: var(--ink-soft); margin-top: 2px; }
+  .diary-entry-ingredients{ font-size: 12px; color: var(--ink-soft); margin-top: 4px; max-width: 480px; line-height: 1.5; }
   .diary-entry-right{ display: flex; align-items: center; }
   .diary-entry-kcal{ font-weight: 700; font-size: 14px; }
 
@@ -1311,6 +1320,7 @@ function renderDietChartView(){
   const isToday = dateStr === todayStr();
   const weekDays = weekDatesFor(dateStr);
   const remaining = Math.round(dailyGoals.calories - eatenTotals.calories);
+  const pct = (num, den) => den > 0 ? Math.min(num / den * 100, 100) : 0;
 
   const container = document.createElement("div");
   container.className = "content";
@@ -1331,12 +1341,13 @@ function renderDietChartView(){
     <h1 class="diary-date-heading">${formatFullDate(dateStr)}</h1>
 
     <div class="macro-summary-card">
+      <button class="edit-goals-btn" onclick="openEditGoalsModal()">⚙ Edit daily goals</button>
       <div class="kcal-remaining-block">
         <div class="kcal-remaining-num">${remaining}</div>
         <div class="kcal-remaining-label">KCAL REMAINING</div>
         <div class="kcal-remaining-sub">${r(eatenTotals.calories)} eaten · ${dailyGoals.calories} goal</div>
         <div class="meal-stack-track">
-          ${MEAL_TYPES.map(m => `<div class="meal-stack-fill" style="width:${Math.min(mealEatenKcal[m]/dailyGoals.calories*100,100)}%; background:${MEAL_COLORS[m]};"></div>`).join("")}
+          ${MEAL_TYPES.map(m => `<div class="meal-stack-fill" style="width:${pct(mealEatenKcal[m], dailyGoals.calories)}%; background:${MEAL_COLORS[m]};"></div>`).join("")}
         </div>
         <div class="meal-legend">
           ${MEAL_TYPES.map(m => `
@@ -1350,17 +1361,16 @@ function renderDietChartView(){
       <div class="macro-bars">
         <div class="macro-bar-row">
           <div class="macro-bar-head"><span>Protein</span><span>${r(eatenTotals.protein)} / ${dailyGoals.protein}g</span></div>
-          <div class="macro-bar-track"><div class="macro-bar-fill p" style="width:${Math.min(eatenTotals.protein/dailyGoals.protein*100,100)}%"></div></div>
+          <div class="macro-bar-track"><div class="macro-bar-fill p" style="width:${pct(eatenTotals.protein, dailyGoals.protein)}%"></div></div>
         </div>
         <div class="macro-bar-row">
           <div class="macro-bar-head"><span>Carbs</span><span>${r(eatenTotals.carbs)} / ${dailyGoals.carbs}g</span></div>
-          <div class="macro-bar-track"><div class="macro-bar-fill c" style="width:${Math.min(eatenTotals.carbs/dailyGoals.carbs*100,100)}%"></div></div>
+          <div class="macro-bar-track"><div class="macro-bar-fill c" style="width:${pct(eatenTotals.carbs, dailyGoals.carbs)}%"></div></div>
         </div>
         <div class="macro-bar-row">
           <div class="macro-bar-head"><span>Fat</span><span>${r(eatenTotals.fat)} / ${dailyGoals.fat}g</span></div>
-          <div class="macro-bar-track"><div class="macro-bar-fill f" style="width:${Math.min(eatenTotals.fat/dailyGoals.fat*100,100)}%"></div></div>
+          <div class="macro-bar-track"><div class="macro-bar-fill f" style="width:${pct(eatenTotals.fat, dailyGoals.fat)}%"></div></div>
         </div>
-        <button class="btn text" style="padding-left:0; margin-top:6px;" onclick="openEditGoalsModal()">Edit daily goals</button>
       </div>
     </div>
 
@@ -1385,6 +1395,7 @@ function renderMealSection(meal, entries){
             <div>
               <div class="diary-entry-name">${e.icon || "🍽️"} ${e.recipeName}</div>
               <div class="diary-entry-sub">1 serving(s) · ${eaten ? "Eaten" : "Planned"}</div>
+              ${entryIngredientsLine(e)}
             </div>
           </div>
           <div class="diary-entry-right">
@@ -1393,6 +1404,14 @@ function renderMealSection(meal, entries){
           </div>
         </div>`; }).join("") : `<p style="color:var(--ink-soft); font-size:13.5px; margin: 0;">Nothing added yet — find a recipe and tap "+ Add to chart."</p>`}
     </div>`;
+}
+
+function entryIngredientsLine(entry){
+  const rc = recipes.find(x => String(x.id) === String(entry.recipeId));
+  if(!rc || !rc.ingredients) return "";
+  const lines = rc.ingredients.split("|").map(s => s.trim()).filter(Boolean);
+  if(!lines.length) return "";
+  return `<div class="diary-entry-ingredients">${lines.join(" · ")}</div>`;
 }
 
 function openEditGoalsModal(){
