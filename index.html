@@ -1215,7 +1215,7 @@ function confirmAddToChart(){
   dietChartEntries.push({
     id: Date.now() + "_" + Math.random().toString(36).slice(2,7),
     recipeId: recipe.id, recipeName: recipe.name, icon: recipe.icon,
-    meal, date: dateStr, eaten: false,
+    meal, date: dateStr, eaten: true,
     calories: totals.calories, protein: totals.protein, carbs: totals.carbs, fat: totals.fat
   });
   saveDietChartEntries();
