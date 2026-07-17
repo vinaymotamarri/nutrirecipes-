@@ -23,6 +23,10 @@
     --dot-protein: #1D9E75;
     --dot-carbs: #C9821D;
     --dot-fat: #8B5CF6;
+    --meal-breakfast: #C9821D;
+    --meal-lunch: #1D9E75;
+    --meal-dinner: #8B5CF6;
+    --meal-snack: #2B7FD6;
     --tint-1: #D9EEE4; --tint-1-line: #C3E2D5;
     --tint-2: #E9E1F5; --tint-2-line: #DACDEE;
     --tint-3: #F3E7D3; --tint-3-line: #E8D5B4;
@@ -454,14 +458,18 @@
 
   .macro-summary-card{
     background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 24px; margin-bottom: 24px; display: flex; align-items: center; gap: 32px; flex-wrap: wrap;
+    padding: 24px; margin-bottom: 24px; display: flex; align-items: flex-start; gap: 40px; flex-wrap: wrap;
   }
-  .macro-ring-wrap{ position: relative; width: 130px; height: 130px; flex-shrink: 0; }
-  .macro-ring-label{
-    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  }
-  .macro-ring-label b{ font-size: 24px; }
-  .macro-ring-label span{ font-size: 11.5px; color: var(--ink-soft); }
+  .kcal-remaining-block{ min-width: 220px; }
+  .kcal-remaining-num{ font-size: 40px; font-weight: 800; line-height: 1; }
+  .kcal-remaining-label{ font-size: 11.5px; font-weight: 700; letter-spacing: 0.06em; color: var(--ink-soft); margin: 4px 0 6px; }
+  .kcal-remaining-sub{ font-size: 13px; color: var(--ink-soft); margin-bottom: 12px; }
+  .meal-stack-track{ display: flex; height: 8px; border-radius: 999px; background: var(--bg); overflow: hidden; margin-bottom: 14px; }
+  .meal-stack-fill{ height: 100%; }
+  .meal-legend-row{ display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 3px 0; }
+  .meal-legend-row span:nth-child(2){ flex: 1; color: var(--ink); }
+  .meal-legend-kcal{ color: var(--ink-soft); }
+  .meal-dot{ width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
   .macro-bars{ flex: 1; min-width: 220px; }
   .macro-bar-row{ margin-bottom: 14px; }
   .macro-bar-row:last-of-type{ margin-bottom: 0; }
@@ -478,6 +486,10 @@
     padding: 10px 0; border-bottom: 1px solid var(--border);
   }
   .diary-entry-row:last-child{ border-bottom: none; }
+  .diary-entry-left{ display: flex; align-items: center; gap: 12px; }
+  .entry-checkbox{
+    width: 20px; height: 20px; border-radius: 50%; accent-color: var(--accent); cursor: pointer; flex-shrink: 0;
+  }
   .diary-entry-name{ font-weight: 600; font-size: 14.5px; }
   .diary-entry-sub{ font-size: 12.5px; color: var(--ink-soft); margin-top: 2px; }
   .diary-entry-right{ display: flex; align-items: center; }
@@ -938,7 +950,7 @@ function renderGridView(){
         <div class="browse-search-row">
           <div class="search-box">
             <span class="icon">🔍</span>
-            <input type="text" id="searchInput" placeholder="Search recipes…" oninput="onSearch(this.value)">
+            <input type="text" id="searchInput" placeholder="Search recipes…" value="${state.search.replace(/"/g, "&quot;")}" oninput="onSearch(this.value)">
           </div>
           <span class="result-count-inline"><b>${filtered.length}</b> recipe${filtered.length === 1 ? "" : "s"}</span>
         </div>
@@ -1203,13 +1215,20 @@ function confirmAddToChart(){
   dietChartEntries.push({
     id: Date.now() + "_" + Math.random().toString(36).slice(2,7),
     recipeId: recipe.id, recipeName: recipe.name, icon: recipe.icon,
-    meal, date: dateStr,
+    meal, date: dateStr, eaten: false,
     calories: totals.calories, protein: totals.protein, carbs: totals.carbs, fat: totals.fat
   });
   saveDietChartEntries();
   closeModal("addToChartOverlay");
   pendingAddToChart = null;
   if(state.view.name === "dietchart") renderDietChartView();
+}
+
+function toggleEntryEaten(id){
+  const entry = dietChartEntries.find(e => e.id === id);
+  if(entry) entry.eaten = !(entry.eaten !== false);
+  saveDietChartEntries();
+  renderDietChartView();
 }
 
 function removeDietChartEntry(id){
@@ -1269,22 +1288,29 @@ function formatFullDate(dateStr){
   return d.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 }
 
+const MEAL_COLORS = { Breakfast: "var(--meal-breakfast)", Lunch: "var(--meal-lunch)", Dinner: "var(--meal-dinner)", Snacks: "var(--meal-snack)" };
+
 function renderDietChartView(){
   document.getElementById("tabBrowse").classList.remove("active");
   document.getElementById("tabDiary").classList.add("active");
 
   const dateStr = state.view.date;
   const dayEntries = dietChartEntries.filter(e => e.date === dateStr);
-  const dayTotals = dayEntries.reduce((t, e) => ({
+  const isEaten = e => e.eaten !== false;
+
+  const eatenTotals = dayEntries.filter(isEaten).reduce((t, e) => ({
     calories: t.calories + e.calories, protein: t.protein + e.protein,
     carbs: t.carbs + e.carbs, fat: t.fat + e.fat
   }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
 
+  const mealEatenKcal = {};
+  MEAL_TYPES.forEach(m => {
+    mealEatenKcal[m] = dayEntries.filter(e => e.meal === m && isEaten(e)).reduce((s, e) => s + e.calories, 0);
+  });
+
   const isToday = dateStr === todayStr();
   const weekDays = weekDatesFor(dateStr);
-  const circumference = 2 * Math.PI * 52;
-  const ringPct = Math.min(dayTotals.calories / (dailyGoals.calories || 1), 1);
-  const ringOffset = circumference * (1 - ringPct);
+  const remaining = Math.round(dailyGoals.calories - eatenTotals.calories);
 
   const container = document.createElement("div");
   container.className = "content";
@@ -1305,30 +1331,34 @@ function renderDietChartView(){
     <h1 class="diary-date-heading">${formatFullDate(dateStr)}</h1>
 
     <div class="macro-summary-card">
-      <div class="macro-ring-wrap">
-        <svg width="130" height="130" viewBox="0 0 130 130">
-          <circle cx="65" cy="65" r="52" fill="none" stroke="var(--border)" stroke-width="12"/>
-          <circle cx="65" cy="65" r="52" fill="none" stroke="var(--accent)" stroke-width="12"
-            stroke-linecap="round" stroke-dasharray="${circumference}" stroke-dashoffset="${ringOffset}"
-            transform="rotate(-90 65 65)"/>
-        </svg>
-        <div class="macro-ring-label">
-          <b>${r(dayTotals.calories)}</b>
-          <span>of ${dailyGoals.calories} kcal</span>
+      <div class="kcal-remaining-block">
+        <div class="kcal-remaining-num">${remaining}</div>
+        <div class="kcal-remaining-label">KCAL REMAINING</div>
+        <div class="kcal-remaining-sub">${r(eatenTotals.calories)} eaten · ${dailyGoals.calories} goal</div>
+        <div class="meal-stack-track">
+          ${MEAL_TYPES.map(m => `<div class="meal-stack-fill" style="width:${Math.min(mealEatenKcal[m]/dailyGoals.calories*100,100)}%; background:${MEAL_COLORS[m]};"></div>`).join("")}
+        </div>
+        <div class="meal-legend">
+          ${MEAL_TYPES.map(m => `
+            <div class="meal-legend-row">
+              <span class="meal-dot" style="background:${MEAL_COLORS[m]}"></span>
+              <span>${m}</span>
+              <span class="meal-legend-kcal">${r(mealEatenKcal[m])}</span>
+            </div>`).join("")}
         </div>
       </div>
       <div class="macro-bars">
         <div class="macro-bar-row">
-          <div class="macro-bar-head"><span>Protein</span><span>${r(dayTotals.protein)} / ${dailyGoals.protein}g</span></div>
-          <div class="macro-bar-track"><div class="macro-bar-fill p" style="width:${Math.min(dayTotals.protein/dailyGoals.protein*100,100)}%"></div></div>
+          <div class="macro-bar-head"><span>Protein</span><span>${r(eatenTotals.protein)} / ${dailyGoals.protein}g</span></div>
+          <div class="macro-bar-track"><div class="macro-bar-fill p" style="width:${Math.min(eatenTotals.protein/dailyGoals.protein*100,100)}%"></div></div>
         </div>
         <div class="macro-bar-row">
-          <div class="macro-bar-head"><span>Carbs</span><span>${r(dayTotals.carbs)} / ${dailyGoals.carbs}g</span></div>
-          <div class="macro-bar-track"><div class="macro-bar-fill c" style="width:${Math.min(dayTotals.carbs/dailyGoals.carbs*100,100)}%"></div></div>
+          <div class="macro-bar-head"><span>Carbs</span><span>${r(eatenTotals.carbs)} / ${dailyGoals.carbs}g</span></div>
+          <div class="macro-bar-track"><div class="macro-bar-fill c" style="width:${Math.min(eatenTotals.carbs/dailyGoals.carbs*100,100)}%"></div></div>
         </div>
         <div class="macro-bar-row">
-          <div class="macro-bar-head"><span>Fat</span><span>${r(dayTotals.fat)} / ${dailyGoals.fat}g</span></div>
-          <div class="macro-bar-track"><div class="macro-bar-fill f" style="width:${Math.min(dayTotals.fat/dailyGoals.fat*100,100)}%"></div></div>
+          <div class="macro-bar-head"><span>Fat</span><span>${r(eatenTotals.fat)} / ${dailyGoals.fat}g</span></div>
+          <div class="macro-bar-track"><div class="macro-bar-fill f" style="width:${Math.min(eatenTotals.fat/dailyGoals.fat*100,100)}%"></div></div>
         </div>
         <button class="btn text" style="padding-left:0; margin-top:6px;" onclick="openEditGoalsModal()">Edit daily goals</button>
       </div>
@@ -1348,17 +1378,20 @@ function renderMealSection(meal, entries){
         <h2 style="margin:0; font-size:17px; text-transform:none; letter-spacing:normal; color:var(--ink);">${meal}</h2>
         <span style="font-size:13px; color:var(--ink-soft);">${r(subtotal)} kcal</span>
       </div>
-      ${entries.length ? entries.map(e => `
+      ${entries.length ? entries.map(e => { const eaten = e.eaten !== false; return `
         <div class="diary-entry-row">
-          <div>
-            <div class="diary-entry-name">${e.icon || "🍽️"} ${e.recipeName}</div>
-            <div class="diary-entry-sub">1 serving</div>
+          <div class="diary-entry-left">
+            <input type="checkbox" class="entry-checkbox" ${eaten ? "checked" : ""} onchange="toggleEntryEaten('${e.id}')">
+            <div>
+              <div class="diary-entry-name">${e.icon || "🍽️"} ${e.recipeName}</div>
+              <div class="diary-entry-sub">1 serving(s) · ${eaten ? "Eaten" : "Planned"}</div>
+            </div>
           </div>
           <div class="diary-entry-right">
             <span class="diary-entry-kcal">${r(e.calories)} kcal</span>
             <button class="icon-x" onclick="removeDietChartEntry('${e.id}')">✕</button>
           </div>
-        </div>`).join("") : `<p style="color:var(--ink-soft); font-size:13.5px; margin: 0;">Nothing added yet — find a recipe and tap "+ Add to chart."</p>`}
+        </div>`; }).join("") : `<p style="color:var(--ink-soft); font-size:13.5px; margin: 0;">Nothing added yet — find a recipe and tap "+ Add to chart."</p>`}
     </div>`;
 }
 
