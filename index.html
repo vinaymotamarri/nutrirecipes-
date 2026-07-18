@@ -470,9 +470,12 @@
   .edit-goals-btn:hover{ border-color: var(--accent); color: var(--accent-dark); background: #E4EEE7; }
   .kcal-remaining-block{ min-width: 220px; }
   .kcal-remaining-num{ font-size: 40px; font-weight: 800; line-height: 1; }
+  .kcal-remaining-num.over{ color: #B23A3A; }
   .kcal-remaining-label{ font-size: 11.5px; font-weight: 700; letter-spacing: 0.06em; color: var(--ink-soft); margin: 4px 0 6px; }
+  .kcal-remaining-label.over{ color: #B23A3A; }
   .kcal-remaining-sub{ font-size: 13px; color: var(--ink-soft); margin-bottom: 12px; }
   .meal-stack-track{ display: flex; height: 8px; border-radius: 999px; background: var(--bg); overflow: hidden; margin-bottom: 14px; }
+  .meal-stack-track.over{ box-shadow: 0 0 0 2px #FBEAEA; }
   .meal-stack-fill{ height: 100%; }
   .meal-legend-row{ display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 3px 0; }
   .meal-legend-row span:nth-child(2){ flex: 1; color: var(--ink); }
@@ -495,6 +498,8 @@
   }
   .diary-entry-row:last-child{ border-bottom: none; }
   .diary-entry-left{ display: flex; align-items: center; gap: 12px; }
+  .diary-entry-clickable{ cursor: pointer; }
+  .diary-entry-clickable:hover .diary-entry-name{ color: var(--accent-dark); }
   .entry-checkbox{
     width: 20px; height: 20px; border-radius: 50%; accent-color: var(--accent); cursor: pointer; flex-shrink: 0;
   }
@@ -752,6 +757,7 @@ function calcMacros(ingredientsStr, overrides){
 }
 
 function r(n){ return Math.round(n); }
+function macroCalories(protein, carbs, fat){ return (protein||0)*4 + (carbs||0)*4 + (fat||0)*9; }
 
 /* ============ SUPABASE ============ */
 const SUPABASE_URL = "https://limssbrcututebxiemqd.supabase.co";
@@ -1233,6 +1239,47 @@ function confirmAddToChart(){
   if(state.view.name === "dietchart") renderDietChartView();
 }
 
+function openRecipeDetailModal(recipeId){
+  const rc = recipes.find(x => String(x.id) === String(recipeId));
+  if(!rc){ alert("This recipe couldn't be found — it may have been removed."); return; }
+  const { totals, details } = calcMacros(rc.ingredients);
+  const steps = (rc.steps || "").split("|").map(s => s.trim()).filter(Boolean);
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.id = "recipeDetailOverlay";
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:560px;">
+      <div style="text-align:center; margin-bottom:18px;">
+        <div class="card-icon" style="margin:0 auto 10px;">${cardThumb(rc)}</div>
+        <h2 style="margin:0 0 8px;">${rc.name}</h2>
+        <div class="cal-pill">${r(totals.calories)} kcal</div>
+        <div class="macro-badges" style="margin-top:10px;">
+          <span class="badge p">P ${r(totals.protein)}g</span>
+          <span class="badge c">C ${r(totals.carbs)}g</span>
+          <span class="badge f">F ${r(totals.fat)}g</span>
+        </div>
+      </div>
+      <div style="margin-bottom:18px;">${renderVideoBlock(rc.video_url)}</div>
+      <div style="margin-bottom:18px;">
+        <div class="filter-group-title" style="margin-bottom:8px;">Ingredients</div>
+        ${details.map(d => `
+          <div class="ingredient-row ${d.matched ? "" : "unmatched"}">
+            <span class="name">${d.raw || (d.qty + " " + d.name)}</span>
+            <span class="macro-mini">${d.matched ? r(d.macros.calories) + " kcal" : ""}</span>
+          </div>`).join("") || "<p style='color:var(--ink-soft); font-size:13.5px;'>No ingredients listed.</p>"}
+      </div>
+      <div style="margin-bottom:20px;">
+        <div class="filter-group-title" style="margin-bottom:8px;">Steps</div>
+        ${steps.length ? `<ol class="steps-list">${steps.map(s => `<li>${s}</li>`).join("")}</ol>` : "<p style='color:var(--ink-soft); font-size:13.5px;'>No steps listed.</p>"}
+      </div>
+      <div class="modal-actions">
+        <button class="btn primary" onclick="closeModal('recipeDetailOverlay')">Close</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
 function toggleEntryEaten(id){
   const entry = dietChartEntries.find(e => e.id === id);
   if(entry) entry.eaten = !(entry.eaten !== false);
@@ -1307,19 +1354,20 @@ function renderDietChartView(){
   const dayEntries = dietChartEntries.filter(e => e.date === dateStr);
   const isEaten = e => e.eaten !== false;
 
-  const eatenTotals = dayEntries.filter(isEaten).reduce((t, e) => ({
-    calories: t.calories + e.calories, protein: t.protein + e.protein,
-    carbs: t.carbs + e.carbs, fat: t.fat + e.fat
-  }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
+  const eatenTotals = dayEntries.filter(isEaten).reduce((t, e) => {
+    const cal = macroCalories(e.protein, e.carbs, e.fat);
+    return { calories: t.calories + cal, protein: t.protein + e.protein, carbs: t.carbs + e.carbs, fat: t.fat + e.fat };
+  }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
 
   const mealEatenKcal = {};
   MEAL_TYPES.forEach(m => {
-    mealEatenKcal[m] = dayEntries.filter(e => e.meal === m && isEaten(e)).reduce((s, e) => s + e.calories, 0);
+    mealEatenKcal[m] = dayEntries.filter(e => e.meal === m && isEaten(e)).reduce((s, e) => s + macroCalories(e.protein, e.carbs, e.fat), 0);
   });
 
   const isToday = dateStr === todayStr();
   const weekDays = weekDatesFor(dateStr);
-  const remaining = Math.round(dailyGoals.calories - eatenTotals.calories);
+  const overBudget = eatenTotals.calories > dailyGoals.calories;
+  const remaining = Math.round(Math.abs(dailyGoals.calories - eatenTotals.calories));
   const pct = (num, den) => den > 0 ? Math.min(num / den * 100, 100) : 0;
 
   const container = document.createElement("div");
@@ -1343,10 +1391,10 @@ function renderDietChartView(){
     <div class="macro-summary-card">
       <button class="edit-goals-btn" onclick="openEditGoalsModal()">⚙ Edit daily goals</button>
       <div class="kcal-remaining-block">
-        <div class="kcal-remaining-num">${remaining}</div>
-        <div class="kcal-remaining-label">KCAL REMAINING</div>
+        <div class="kcal-remaining-num ${overBudget ? "over" : ""}">${overBudget ? "-" : ""}${remaining}</div>
+        <div class="kcal-remaining-label ${overBudget ? "over" : ""}">${overBudget ? "⚠️ KCAL OVER GOAL" : "KCAL REMAINING"}</div>
         <div class="kcal-remaining-sub">${r(eatenTotals.calories)} eaten · ${dailyGoals.calories} goal</div>
-        <div class="meal-stack-track">
+        <div class="meal-stack-track ${overBudget ? "over" : ""}">
           ${MEAL_TYPES.map(m => `<div class="meal-stack-fill" style="width:${pct(mealEatenKcal[m], dailyGoals.calories)}%; background:${MEAL_COLORS[m]};"></div>`).join("")}
         </div>
         <div class="meal-legend">
@@ -1381,25 +1429,25 @@ function renderDietChartView(){
 }
 
 function renderMealSection(meal, entries){
-  const subtotal = entries.reduce((t, e) => t + e.calories, 0);
+  const subtotal = entries.reduce((t, e) => t + macroCalories(e.protein, e.carbs, e.fat), 0);
   return `
     <div class="section-block">
       <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px;">
         <h2 style="margin:0; font-size:17px; text-transform:none; letter-spacing:normal; color:var(--ink);">${meal}</h2>
         <span style="font-size:13px; color:var(--ink-soft);">${r(subtotal)} kcal</span>
       </div>
-      ${entries.length ? entries.map(e => { const eaten = e.eaten !== false; return `
+      ${entries.length ? entries.map(e => { const eaten = e.eaten !== false; const cal = macroCalories(e.protein, e.carbs, e.fat); return `
         <div class="diary-entry-row">
           <div class="diary-entry-left">
             <input type="checkbox" class="entry-checkbox" ${eaten ? "checked" : ""} onchange="toggleEntryEaten('${e.id}')">
-            <div>
+            <div class="diary-entry-clickable" onclick="openRecipeDetailModal(${JSON.stringify(e.recipeId)})">
               <div class="diary-entry-name">${e.icon || "🍽️"} ${e.recipeName}</div>
               <div class="diary-entry-sub">1 serving(s) · ${eaten ? "Eaten" : "Planned"}</div>
               ${entryIngredientsLine(e)}
             </div>
           </div>
           <div class="diary-entry-right">
-            <span class="diary-entry-kcal">${r(e.calories)} kcal</span>
+            <span class="diary-entry-kcal">${r(cal)} kcal</span>
             <button class="icon-x" onclick="removeDietChartEntry('${e.id}')">✕</button>
           </div>
         </div>`; }).join("") : `<p style="color:var(--ink-soft); font-size:13.5px; margin: 0;">Nothing added yet — find a recipe and tap "+ Add to chart."</p>`}
