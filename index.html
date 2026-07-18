@@ -8,6 +8,7 @@
 <meta name="theme-color" content="#1D9E75">
 <link rel="apple-touch-icon" href="icon-192.png">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script async src="https://www.instagram.com/embed.js"></script>
 <style>
   :root{
     --bg: #F7F7F5;
@@ -547,6 +548,26 @@
   .video-ig .ig-badge{
     display:inline-block; margin-bottom:8px; font-size: 26px;
   }
+  .video-embed-wrap{
+    position: relative;
+    width: 100%;
+    padding-top: 56.25%;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #000;
+  }
+  .video-embed-wrap iframe{
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    border: none;
+  }
+  .fb-fallback-hint{
+    font-size: 12px;
+    color: var(--ink-soft);
+    text-align: center;
+    margin-top: 8px;
+  }
+  .fb-fallback-hint a{ color: var(--accent-dark); font-weight: 600; }
   .no-video{ color: var(--ink-soft); font-size: 14px; }
 
   .ingredient-row{
@@ -1086,17 +1107,23 @@ function renderVideoBlock(url){
   if(!url) return `<div class="no-video">No video added yet.</div>`;
   const ytId = youtubeId(url);
   if(ytId){
-    return `<a class="video-yt" href="${url}" target="_blank" rel="noopener">
-      <img src="https://img.youtube.com/vi/${ytId}/hqdefault.jpg" alt="Video thumbnail">
-      <span class="play">▶</span>
-    </a>`;
+    return `<div class="video-embed-wrap"><iframe src="https://www.youtube.com/embed/${ytId}" title="Recipe video" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen loading="lazy"></iframe></div>`;
   }
   if(url.includes("instagram.com")){
-    return `<a class="video-ig" href="${url}" target="_blank" rel="noopener">
-      <span class="ig-badge">📷</span><br>View on Instagram
-    </a>`;
+    return `<blockquote class="instagram-media" data-instgrm-permalink="${url}" data-instgrm-version="14" style="margin:0; width:100%; min-width:270px;"></blockquote>`;
+  }
+  if(url.includes("facebook.com")){
+    const encoded = encodeURIComponent(url);
+    return `<div class="video-embed-wrap"><iframe src="https://www.facebook.com/plugins/video.php?href=${encoded}&show_text=false" title="Recipe video" allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share" allowfullscreen loading="lazy"></iframe></div>
+      <div class="fb-fallback-hint">Video not loading? <a href="${url}" target="_blank" rel="noopener">Open on Facebook</a></div>`;
   }
   return `<a class="video-ig" href="${url}" target="_blank" rel="noopener">▶ Watch video</a>`;
+}
+
+function processInstagramEmbeds(){
+  if(window.instgrm && window.instgrm.Embeds){
+    window.instgrm.Embeds.process();
+  }
 }
 
 function renderDetailView(id){
@@ -1150,6 +1177,7 @@ function renderDetailView(id){
   `;
   document.getElementById("app").innerHTML = "";
   document.getElementById("app").appendChild(container);
+  processInstagramEmbeds();
 }
 
 function renderIngredientRow(d){
@@ -1303,6 +1331,7 @@ function openRecipeDetailModal(recipeId){
       </div>
     </div>`;
   document.body.appendChild(overlay);
+  processInstagramEmbeds();
 }
 
 function toggleEntryEaten(id){
