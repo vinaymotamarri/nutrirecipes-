@@ -498,8 +498,21 @@
   }
   .diary-entry-row:last-child{ border-bottom: none; }
   .diary-entry-left{ display: flex; align-items: center; gap: 12px; }
-  .diary-entry-clickable{ cursor: pointer; }
+  .diary-entry-clickable{
+    cursor: pointer;
+    padding: 6px 10px;
+    margin: -6px -10px;
+    border-radius: 10px;
+  }
+  .diary-entry-clickable:hover{ background: #E4EEE7; }
   .diary-entry-clickable:hover .diary-entry-name{ color: var(--accent-dark); }
+  .diary-entry-chevron{
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent-dark);
+    margin-left: 6px;
+    white-space: nowrap;
+  }
   .entry-checkbox{
     width: 20px; height: 20px; border-radius: 50%; accent-color: var(--accent); cursor: pointer; flex-shrink: 0;
   }
@@ -595,6 +608,16 @@
     overflow-y: auto;
     padding: 26px;
   }
+  .modal-sticky-header{
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    justify-content: flex-end;
+    padding: 14px 14px 0;
+    background: var(--card);
+  }
+  .modal-body{ padding: 4px 26px 26px; }
   .modal h2{ margin: 0 0 18px; font-size: 19px; }
   .field{ margin-bottom: 16px; }
   .field label{
@@ -1249,32 +1272,34 @@ function openRecipeDetailModal(recipeId){
   overlay.className = "modal-overlay";
   overlay.id = "recipeDetailOverlay";
   overlay.innerHTML = `
-    <div class="modal" style="max-width:560px;">
-      <div style="text-align:center; margin-bottom:18px;">
-        <div class="card-icon" style="margin:0 auto 10px;">${cardThumb(rc)}</div>
-        <h2 style="margin:0 0 8px;">${rc.name}</h2>
-        <div class="cal-pill">${r(totals.calories)} kcal</div>
-        <div class="macro-badges" style="margin-top:10px;">
-          <span class="badge p">P ${r(totals.protein)}g</span>
-          <span class="badge c">C ${r(totals.carbs)}g</span>
-          <span class="badge f">F ${r(totals.fat)}g</span>
+    <div class="modal" style="max-width:560px; padding:0;">
+      <div class="modal-sticky-header">
+        <button class="icon-btn" onclick="closeModal('recipeDetailOverlay')" aria-label="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="text-align:center; margin-bottom:18px;">
+          <div class="card-icon" style="margin:0 auto 10px;">${cardThumb(rc)}</div>
+          <h2 style="margin:0 0 8px;">${rc.name}</h2>
+          <div class="cal-pill">${r(totals.calories)} kcal</div>
+          <div class="macro-badges" style="margin-top:10px;">
+            <span class="badge p">P ${r(totals.protein)}g</span>
+            <span class="badge c">C ${r(totals.carbs)}g</span>
+            <span class="badge f">F ${r(totals.fat)}g</span>
+          </div>
         </div>
-      </div>
-      <div style="margin-bottom:18px;">${renderVideoBlock(rc.video_url)}</div>
-      <div style="margin-bottom:18px;">
-        <div class="filter-group-title" style="margin-bottom:8px;">Ingredients</div>
-        ${details.map(d => `
-          <div class="ingredient-row ${d.matched ? "" : "unmatched"}">
-            <span class="name">${d.raw || (d.qty + " " + d.name)}</span>
-            <span class="macro-mini">${d.matched ? r(d.macros.calories) + " kcal" : ""}</span>
-          </div>`).join("") || "<p style='color:var(--ink-soft); font-size:13.5px;'>No ingredients listed.</p>"}
-      </div>
-      <div style="margin-bottom:20px;">
-        <div class="filter-group-title" style="margin-bottom:8px;">Steps</div>
-        ${steps.length ? `<ol class="steps-list">${steps.map(s => `<li>${s}</li>`).join("")}</ol>` : "<p style='color:var(--ink-soft); font-size:13.5px;'>No steps listed.</p>"}
-      </div>
-      <div class="modal-actions">
-        <button class="btn primary" onclick="closeModal('recipeDetailOverlay')">Close</button>
+        <div style="margin-bottom:18px;">${renderVideoBlock(rc.video_url)}</div>
+        <div style="margin-bottom:18px;">
+          <div class="filter-group-title" style="margin-bottom:8px;">Ingredients</div>
+          ${details.map(d => `
+            <div class="ingredient-row ${d.matched ? "" : "unmatched"}">
+              <span class="name">${d.raw || (d.qty + " " + d.name)}</span>
+              <span class="macro-mini">${d.matched ? r(d.macros.calories) + " kcal" : ""}</span>
+            </div>`).join("") || "<p style='color:var(--ink-soft); font-size:13.5px;'>No ingredients listed.</p>"}
+        </div>
+        <div>
+          <div class="filter-group-title" style="margin-bottom:8px;">Steps</div>
+          ${steps.length ? `<ol class="steps-list">${steps.map(s => `<li>${s}</li>`).join("")}</ol>` : "<p style='color:var(--ink-soft); font-size:13.5px;'>No steps listed.</p>"}
+        </div>
       </div>
     </div>`;
   document.body.appendChild(overlay);
@@ -1441,7 +1466,7 @@ function renderMealSection(meal, entries){
           <div class="diary-entry-left">
             <input type="checkbox" class="entry-checkbox" ${eaten ? "checked" : ""} onchange="toggleEntryEaten('${e.id}')">
             <div class="diary-entry-clickable" onclick="openRecipeDetailModal(${JSON.stringify(e.recipeId)})">
-              <div class="diary-entry-name">${e.icon || "🍽️"} ${e.recipeName}</div>
+              <div class="diary-entry-name">${e.icon || "🍽️"} ${e.recipeName} <span class="diary-entry-chevron">View recipe ›</span></div>
               <div class="diary-entry-sub">1 serving(s) · ${eaten ? "Eaten" : "Planned"}</div>
               ${entryIngredientsLine(e)}
             </div>
