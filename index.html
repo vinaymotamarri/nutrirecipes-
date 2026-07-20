@@ -123,6 +123,27 @@
     flex-shrink: 0;
   }
   .icon-btn:hover{ border-color: var(--accent); color: var(--accent); }
+  .account-btn{
+    background: var(--bg); border: 1px solid var(--border); border-radius: 999px;
+    padding: 9px 18px; font-weight: 600; font-size: 13.5px; color: var(--ink); cursor: pointer;
+  }
+  .account-btn:hover{ border-color: var(--accent); color: var(--accent-dark); }
+  .account-btn.logged-in{ background: #E4EEE7; border-color: var(--accent); color: var(--accent-dark); }
+  .status{ font-size: 13px; color: var(--ink-soft); margin: 4px 0 10px; }
+  .status.error{ color: #B23A3A; }
+  .plan-generator-box{
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 20px 22px; margin-bottom: 20px;
+  }
+  .plan-generator-box .row{ display: flex; gap: 10px; }
+  .plan-generator-box input[type=text]{
+    flex: 1; padding: 10px 14px; border-radius: 9px; border: 1px solid var(--border); font-size: 14px;
+  }
+  .plan-generator-box input[type=text]:focus{ outline: 2px solid var(--accent); border-color: var(--accent); }
+  .plan-preview-meal{ margin-top: 14px; }
+  .plan-preview-meal-title{ font-size: 12.5px; font-weight: 700; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+  .plan-preview-row{ display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
+  .plan-preview-row:last-child{ border-bottom: none; }
 
   /* ===== Data source banners ===== */
   .data-banner{
@@ -227,8 +248,19 @@
     height: 150px;
     display: flex; align-items: center; justify-content: center;
     overflow: hidden;
+    position: relative;
   }
   .recipe-photo img{ width: 100%; height: 100%; object-fit: cover; }
+  .fav-heart-btn{
+    position: absolute; top: 10px; right: 10px;
+    width: 32px; height: 32px; border-radius: 50%;
+    background: rgba(255,255,255,0.9); border: none;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px; color: #8A8A85; cursor: pointer;
+    z-index: 2;
+  }
+  .fav-heart-btn.active{ color: #B23A3A; }
+  .fav-heart-btn:hover{ transform: scale(1.08); }
   .recipe-photo.placeholder{
     background-image: repeating-linear-gradient(45deg, var(--tint-line) 0, var(--tint-line) 2px, var(--tint) 2px, var(--tint) 14px);
   }
@@ -714,7 +746,10 @@
     <button class="tab-link" id="tabBrowse" onclick="goHome()">Browse</button>
     <button class="tab-link" id="tabDiary" onclick="openDietChartView()">Diary</button>
   </div>
-  <button class="icon-btn" title="Refresh recipes" onclick="refreshData()">↻</button>
+  <div style="display:flex; align-items:center; gap:10px;">
+    <button class="icon-btn" title="Refresh recipes" onclick="refreshData()">↻</button>
+    <button class="account-btn" id="accountBtn" onclick="onAccountBtnClick()">Log in</button>
+  </div>
 </div>
 
 <div id="app"></div>
@@ -742,7 +777,7 @@ const UNITS = ["g","kg","ml","l","cup","cups","tbsp","tsp","piece","pieces","pc"
 /* ============ STATE ============ */
 let recipes = [];
 let foodDB = [];
-let state = { calBuckets: new Set(), dietTags: new Set(), search: "", view: { name: "grid" } };
+let state = { calBuckets: new Set(), dietTags: new Set(), search: "", favoritesOnly: false, view: { name: "grid" } };
 
 /* ============ MACRO ENGINE ============ */
 function parseIngredientLine(line){
@@ -807,6 +842,197 @@ function macroCalories(protein, carbs, fat){ return (protein||0)*4 + (carbs||0)*
 const SUPABASE_URL = "https://limssbrcututebxiemqd.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxpbXNzYnJjdXR1dGVieGllbXFkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyOTA5NjUsImV4cCI6MjA5ODg2Njk2NX0.fMNKJ3rrcKvypIZGra9U4zXCvuQ-k9CSzjQ-EjJewK4";
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+/* ============ AUTH (regular users — separate from your own admin login) ============ */
+let currentUser = null;
+let userFavorites = new Set(); // recipe ids the logged-in user has favorited
+
+async function initAuth(){
+  const { data } = await supabaseClient.auth.getSession();
+  currentUser = data.session ? data.session.user : null;
+  if(currentUser) await loadFavorites();
+  updateAccountButton();
+
+  supabaseClient.auth.onAuthStateChange(async (event, session) => {
+    if(event === "PASSWORD_RECOVERY"){
+      openSetNewPasswordModal();
+      return;
+    }
+    currentUser = session ? session.user : null;
+    userFavorites = currentUser ? userFavorites : new Set();
+    if(currentUser) await loadFavorites();
+    updateAccountButton();
+    render();
+  });
+}
+
+function updateAccountButton(){
+  const btn = document.getElementById("accountBtn");
+  if(!btn) return;
+  if(currentUser){
+    btn.textContent = currentUser.email.split("@")[0] + " · Log out";
+    btn.classList.add("logged-in");
+  } else {
+    btn.textContent = "Log in";
+    btn.classList.remove("logged-in");
+  }
+}
+
+function onAccountBtnClick(){
+  if(currentUser){
+    if(confirm("Log out of NutriRecipes?")) doUserLogout();
+  } else {
+    openAuthModal();
+  }
+}
+
+async function doUserLogout(){
+  await supabaseClient.auth.signOut();
+  currentUser = null;
+  userFavorites = new Set();
+  updateAccountButton();
+  render();
+}
+
+function openAuthModal(mode){
+  mode = mode || "login";
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.id = "authOverlay";
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:400px;">
+      <h2 id="authTitle">${mode === "signup" ? "Create your account" : "Log in"}</h2>
+      <div class="field"><label>Email</label><input type="text" id="authEmail" placeholder="you@example.com"></div>
+      <div class="field"><label>Password</label><input type="password" id="authPassword" placeholder="At least 6 characters"></div>
+      <div class="status" id="authStatus"></div>
+      <div class="modal-actions">
+        <button class="btn text" onclick="closeModal('authOverlay')">Cancel</button>
+        <button class="btn primary" id="authSubmitBtn" onclick="submitAuth('${mode}')">${mode === "signup" ? "Sign up" : "Log in"}</button>
+      </div>
+      <div class="hint" style="text-align:center;">
+        ${mode === "signup" ? `Already have an account? <a href="#" onclick="event.preventDefault(); closeModal('authOverlay'); openAuthModal('login');">Log in</a>`
+                             : `New here? <a href="#" onclick="event.preventDefault(); closeModal('authOverlay'); openAuthModal('signup');">Create an account</a>`}
+        ${mode === "login" ? `<div style="margin-top:8px;"><a href="#" onclick="event.preventDefault(); closeModal('authOverlay'); openForgotPasswordModal();">Forgot password?</a></div>` : ""}
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+function openForgotPasswordModal(){
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.id = "forgotOverlay";
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:400px;">
+      <h2>Reset your password</h2>
+      <div class="field"><label>Email</label><input type="text" id="forgotEmail" placeholder="you@example.com"></div>
+      <div class="status" id="forgotStatus"></div>
+      <div class="modal-actions">
+        <button class="btn text" onclick="closeModal('forgotOverlay')">Cancel</button>
+        <button class="btn primary" onclick="sendPasswordReset()">Send reset link</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+async function sendPasswordReset(){
+  const email = document.getElementById("forgotEmail").value.trim();
+  const statusEl = document.getElementById("forgotStatus");
+  if(!email){ statusEl.textContent = "Enter your email first."; statusEl.className = "status error"; return; }
+  statusEl.textContent = "Sending…"; statusEl.className = "status";
+  const { error } = await supabaseClient.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin + window.location.pathname
+  });
+  if(error){
+    statusEl.textContent = error.message;
+    statusEl.className = "status error";
+    return;
+  }
+  statusEl.textContent = "Check your email for a reset link. It'll bring you back here to set a new password.";
+  statusEl.className = "status";
+}
+
+function openSetNewPasswordModal(){
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.id = "newPasswordOverlay";
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:400px;">
+      <h2>Set a new password</h2>
+      <div class="field"><label>New password</label><input type="password" id="newPassword" placeholder="At least 6 characters"></div>
+      <div class="status" id="newPasswordStatus"></div>
+      <div class="modal-actions">
+        <button class="btn primary" onclick="submitNewPassword()">Save new password</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+async function submitNewPassword(){
+  const password = document.getElementById("newPassword").value;
+  const statusEl = document.getElementById("newPasswordStatus");
+  if(!password || password.length < 6){ statusEl.textContent = "Password must be at least 6 characters."; statusEl.className = "status error"; return; }
+  statusEl.textContent = "Saving…"; statusEl.className = "status";
+  const { data, error } = await supabaseClient.auth.updateUser({ password });
+  if(error){
+    statusEl.textContent = error.message;
+    statusEl.className = "status error";
+    return;
+  }
+  currentUser = data.user;
+  await loadFavorites();
+  updateAccountButton();
+  closeModal("newPasswordOverlay");
+  render();
+  alert("Password updated — you're logged in.");
+}
+
+async function submitAuth(mode){
+  const email = document.getElementById("authEmail").value.trim();
+  const password = document.getElementById("authPassword").value;
+  const statusEl = document.getElementById("authStatus");
+  if(!email || !password){ statusEl.textContent = "Enter both an email and password."; statusEl.className = "status error"; return; }
+  statusEl.textContent = "Working…"; statusEl.className = "status";
+
+  const { data, error } = mode === "signup"
+    ? await supabaseClient.auth.signUp({ email, password })
+    : await supabaseClient.auth.signInWithPassword({ email, password });
+
+  if(error){
+    statusEl.textContent = error.message;
+    statusEl.className = "status error";
+    return;
+  }
+  if(mode === "signup" && !data.session){
+    statusEl.textContent = "Check your email to confirm your account, then log in.";
+    statusEl.className = "status";
+    return;
+  }
+  currentUser = data.user;
+  await loadFavorites();
+  updateAccountButton();
+  closeModal("authOverlay");
+  render();
+}
+
+async function loadFavorites(){
+  if(!currentUser){ userFavorites = new Set(); return; }
+  const { data, error } = await supabaseClient.from("favorites").select("recipe_id").eq("user_id", currentUser.id);
+  userFavorites = error ? new Set() : new Set((data || []).map(row => row.recipe_id));
+}
+
+async function toggleFavorite(recipeId){
+  if(!currentUser){ openAuthModal("login"); return; }
+  const isFav = userFavorites.has(recipeId);
+  if(isFav){
+    await supabaseClient.from("favorites").delete().eq("user_id", currentUser.id).eq("recipe_id", recipeId);
+    userFavorites.delete(recipeId);
+  } else {
+    await supabaseClient.from("favorites").insert({ user_id: currentUser.id, recipe_id: recipeId });
+    userFavorites.add(recipeId);
+  }
+  render();
+}
 
 async function loadFromSupabase(){
   const [{ data: recipeRows, error: recipeErr }, { data: foodRows, error: foodErr }] = await Promise.all([
@@ -936,7 +1162,14 @@ function passesFilters(rc){
   const dietTags = recipeDietTags(rc, totals);
   const dietOk = state.dietTags.size === 0 || [...state.dietTags].some(t => dietTags.includes(t));
   const searchOk = matchesSearch(rc, state.search);
-  return bucketOk && dietOk && searchOk;
+  const favOk = !state.favoritesOnly || userFavorites.has(rc.id);
+  return bucketOk && dietOk && searchOk && favOk;
+}
+
+function toggleFavoritesOnlyFilter(){
+  if(!currentUser){ openAuthModal("login"); return; }
+  state.favoritesOnly = !state.favoritesOnly;
+  render();
 }
 
 /* ============ RENDER: GRID (Browse) ============ */
@@ -983,6 +1216,12 @@ function renderGridView(){
   layout.innerHTML = `
     <div class="filters-sidebar">
       <h2>Filters</h2>
+      <div class="filter-group">
+        <label class="filter-check-row">
+          <input type="checkbox" ${state.favoritesOnly ? "checked" : ""} onchange="toggleFavoritesOnlyFilter()">
+          <span class="fc-label">♥ My favorites only</span>
+        </label>
+      </div>
       <div class="filter-group">
         <div class="filter-group-title">Diet type</div>
         ${DIET_TYPES.map(t => `
@@ -1057,6 +1296,7 @@ function renderGridView(){
     card.innerHTML = `
       <div class="recipe-photo ${hasRealPhoto ? "" : "placeholder " + tintClass}">
         ${hasRealPhoto ? `<img src="${rc.thumbnail_url || ("https://img.youtube.com/vi/" + ytId + "/hqdefault.jpg")}" alt="">` : `<span>Recipe photo</span>`}
+        <button class="fav-heart-btn ${userFavorites.has(rc.id) ? "active" : ""}" onclick="event.stopPropagation(); toggleFavorite(${rc.id})" title="${userFavorites.has(rc.id) ? "Remove from favorites" : "Save to favorites"}">${userFavorites.has(rc.id) ? "♥" : "♡"}</button>
       </div>
       <div class="recipe-card-body">
         ${dietTags.length ? `<div class="recipe-tags">${dietTags.slice(0,2).map(t => `<span class="recipe-tag">${t}</span>`).join("")}</div>` : ""}
@@ -1152,7 +1392,10 @@ function renderDetailView(id){
         <span class="badge c">Carbs ${r(totals.carbs)}g</span>
         <span class="badge f">Fat ${r(totals.fat)}g</span>
       </div>
-      <button class="btn primary" style="margin-top:16px;" onclick="openAddToChartModal(${rc.id}, {calories:${totals.calories},protein:${totals.protein},carbs:${totals.carbs},fat:${totals.fat}})">+ Add to diet chart</button>
+      <div style="display:flex; gap:10px; justify-content:center; margin-top:16px; flex-wrap:wrap;">
+        <button class="btn primary" onclick="openAddToChartModal(${rc.id}, {calories:${totals.calories},protein:${totals.protein},carbs:${totals.carbs},fat:${totals.fat}})">+ Add to diet chart</button>
+        <button class="btn ${userFavorites.has(rc.id) ? "" : ""}" onclick="toggleFavorite(${rc.id})">${userFavorites.has(rc.id) ? "♥ Saved" : "♡ Save to favorites"}</button>
+      </div>
     </div>
     <div class="section-block">
       <h2>Video</h2>
@@ -1354,6 +1597,176 @@ function loadGoals(){
 function saveGoals(g){ localStorage.setItem("nr_goals", JSON.stringify(g)); }
 let dailyGoals = loadGoals();
 
+/* ============ NATURAL LANGUAGE DIET PLAN GENERATOR ============
+   Pattern-matches common phrasings (calories, diet type, date) rather than
+   using a real AI call — no backend infra needed for this version. Genuinely
+   open-ended phrasing beyond these patterns won't parse; that's the honest
+   limit of this approach versus a true LLM-backed parser. */
+let pendingPlan = null;
+
+function parsePlanQuery(text){
+  const lower = text.toLowerCase();
+
+  // Local guardrail (used when the AI parser isn't deployed or fails): if the text has
+  // no calorie number, no diet-type keyword, and no food/meal-related word at all,
+  // treat it as out of scope rather than silently generating a generic default plan.
+  const hasCalories = /\d{3,5}\s*(kcal|cal|calorie|calories)/.test(lower);
+  const hasDietKeyword = /(low[\s-]?carb|high[\s-]?protein|keto|vegetarian)/.test(lower);
+  const hasMealKeyword = /(diet|meal|breakfast|lunch|dinner|snack|calorie|cal|nutrition|recipe|food|eat)/.test(lower);
+  if(!hasCalories && !hasDietKeyword && !hasMealKeyword){
+    return { outOfScope: true };
+  }
+
+  const calMatch = lower.match(/(\d{3,5})\s*(kcal|cal|calorie|calories)/);
+  const calories = calMatch ? parseInt(calMatch[1], 10) : dailyGoals.calories;
+
+  let dietTag = null;
+  if(/low[\s-]?carb/.test(lower)) dietTag = "Low Carb";
+  else if(/high[\s-]?protein/.test(lower)) dietTag = "High Protein";
+  else if(/keto/.test(lower)) dietTag = "Keto-Friendly";
+  else if(/vegetarian/.test(lower)) dietTag = "Vegetarian";
+
+  let dateStr = todayStr();
+  if(/tomorrow/.test(lower)){
+    const d = new Date(); d.setDate(d.getDate() + 1);
+    dateStr = d.toISOString().slice(0,10);
+  } else if(/day after tomorrow/.test(lower)){
+    const d = new Date(); d.setDate(d.getDate() + 2);
+    dateStr = d.toISOString().slice(0,10);
+  }
+
+  return { outOfScope: false, calories, dietTag, dateStr };
+}
+
+// Fill in your Supabase project's edge function URL once deployed, e.g.
+// "https://limssbrcututebxiemqd.supabase.co/functions/v1/parse-diet-query"
+const PARSE_QUERY_EDGE_FUNCTION_URL = "https://limssbrcututebxiemqd.supabase.co/functions/v1/parse-diet-query";
+
+async function parsePlanQuerySmart(text){
+  if(PARSE_QUERY_EDGE_FUNCTION_URL){
+    try{
+      const res = await fetch(PARSE_QUERY_EDGE_FUNCTION_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + SUPABASE_ANON_KEY },
+        body: JSON.stringify({ query: text })
+      });
+      if(res.ok){
+        const ai = await res.json();
+        if(!ai.error){
+          if(ai.outOfScope) return { outOfScope: true, usedAI: true };
+          const d = new Date(); d.setDate(d.getDate() + (ai.dateOffsetDays || 0));
+          return {
+            outOfScope: false,
+            calories: ai.calories || dailyGoals.calories,
+            dietTag: ai.dietTag || null,
+            dateStr: d.toISOString().slice(0,10),
+            exclude: ai.exclude || [],
+            usedAI: true
+          };
+        }
+      }
+    }catch(e){ console.warn("AI parser unavailable, falling back to pattern matching:", e); }
+  }
+  const local = parsePlanQuery(text);
+  return { ...local, exclude: [], usedAI: false };
+}
+
+async function generateMealPlanFromQuery(){
+  const input = document.getElementById("planQueryInput");
+  const statusEl = document.getElementById("planGeneratorStatus");
+  const text = input.value.trim();
+  if(!text){ statusEl.textContent = "Type a request first, e.g. \"2000 cal low carb diet for tomorrow\"."; statusEl.className = "status error"; return; }
+
+  statusEl.textContent = "Thinking…"; statusEl.className = "status";
+  const parsed = await parsePlanQuerySmart(text);
+
+  if(parsed.outOfScope){
+    statusEl.textContent = "That doesn't look like a diet planning request — NutriRecipes can only help with meal/nutrition planning. Try something like \"2000 cal low carb diet for tomorrow.\"";
+    statusEl.className = "status error";
+    document.getElementById("planPreviewSlot").innerHTML = "";
+    return;
+  }
+
+  const { calories, dietTag, dateStr, exclude, usedAI } = parsed;
+
+  let pool = recipes.filter(rc => {
+    if(dietTag){
+      const totals = calcMacros(rc.ingredients).totals;
+      if(!recipeDietTags(rc, totals).includes(dietTag)) return false;
+    }
+    if(exclude && exclude.length){
+      const labels = [...recipeIngredientLabels(rc)];
+      if(exclude.some(bad => labels.some(l => l.includes(bad.toLowerCase())))) return false;
+    }
+    return true;
+  });
+
+  if(!pool.length){
+    statusEl.textContent = dietTag ? `No recipes tagged "${dietTag}" yet — try a different diet type.` : "No recipes available.";
+    statusEl.className = "status error";
+    document.getElementById("planPreviewSlot").innerHTML = "";
+    return;
+  }
+
+  // Split target calories across meals, then pick the closest-matching recipe for each slot
+  const MEAL_SHARE = { Breakfast: 0.25, Lunch: 0.35, Dinner: 0.30, Snacks: 0.10 };
+  const used = new Set();
+  const plan = [];
+  MEAL_TYPES.forEach(meal => {
+    const target = calories * MEAL_SHARE[meal];
+    const candidates = pool.filter(rc => !used.has(rc.id));
+    if(!candidates.length) return;
+    let best = candidates[0], bestDiff = Infinity;
+    candidates.forEach(rc => {
+      const cal = calcMacros(rc.ingredients).totals.calories;
+      const diff = Math.abs(cal - target);
+      if(diff < bestDiff){ bestDiff = diff; best = rc; }
+    });
+    used.add(best.id);
+    plan.push({ meal, recipe: best });
+  });
+
+  const planTotalCal = plan.reduce((s, p) => s + calcMacros(p.recipe.ingredients).totals.calories, 0);
+
+  pendingPlan = { dateStr, entries: plan };
+  statusEl.textContent = `${usedAI ? "✨ " : ""}Suggested plan for ${formatFullDate(dateStr)}${dietTag ? " · " + dietTag : ""} — ${r(planTotalCal)} kcal total (target ${calories}).${!usedAI && PARSE_QUERY_EDGE_FUNCTION_URL === "" ? " (Using pattern-matching — AI parser not yet configured.)" : ""}`;
+  statusEl.className = "status";
+
+  document.getElementById("planPreviewSlot").innerHTML = plan.map(p => {
+    const cal = calcMacros(p.recipe.ingredients).totals.calories;
+    return `<div class="plan-preview-meal">
+      <div class="plan-preview-meal-title">${p.meal}</div>
+      <div class="plan-preview-row"><span>${p.recipe.icon || "🍽️"} ${p.recipe.name}</span><span>${r(cal)} kcal</span></div>
+    </div>`;
+  }).join("") + `<div class="modal-actions" style="margin-top:14px;">
+      <button class="btn text" onclick="dismissPlanPreview()">Discard</button>
+      <button class="btn primary" onclick="acceptGeneratedPlan()">Add this plan to my diary</button>
+    </div>`;
+}
+
+function dismissPlanPreview(){
+  pendingPlan = null;
+  document.getElementById("planPreviewSlot").innerHTML = "";
+  document.getElementById("planGeneratorStatus").textContent = "";
+}
+
+function acceptGeneratedPlan(){
+  if(!pendingPlan) return;
+  pendingPlan.entries.forEach(p => {
+    const totals = calcMacros(p.recipe.ingredients).totals;
+    dietChartEntries.push({
+      id: Date.now() + "_" + Math.random().toString(36).slice(2,7),
+      recipeId: p.recipe.id, recipeName: p.recipe.name, icon: p.recipe.icon,
+      meal: p.meal, date: pendingPlan.dateStr, eaten: true,
+      calories: totals.calories, protein: totals.protein, carbs: totals.carbs, fat: totals.fat
+    });
+  });
+  saveDietChartEntries();
+  state.view = { name: "dietchart", date: pendingPlan.dateStr };
+  pendingPlan = null;
+  render();
+}
+
 function openDietChartView(){
   state.view = { name: "dietchart", date: todayStr() };
   render();
@@ -1427,6 +1840,16 @@ function renderDietChartView(){
   const container = document.createElement("div");
   container.className = "content";
   container.innerHTML = `
+    <div class="plan-generator-box">
+      <div class="filter-group-title" style="margin-bottom:8px;">✨ Generate a diet chart</div>
+      <div class="row">
+        <input type="text" id="planQueryInput" placeholder="e.g. '2000 cal low carb diet for tomorrow'">
+        <button class="btn primary" onclick="generateMealPlanFromQuery()">Generate</button>
+      </div>
+      <div id="planGeneratorStatus" class="status"></div>
+      <div id="planPreviewSlot"></div>
+    </div>
+
     <div class="date-strip-row">
       <button class="icon-btn" onclick="changeChartWeek(-1)">‹</button>
       <div class="date-strip">
@@ -1557,6 +1980,7 @@ function render(){
 }
 
 init();
+initAuth();
 
 if("serviceWorker" in navigator){
   window.addEventListener("load", () => {
