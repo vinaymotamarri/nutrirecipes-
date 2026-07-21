@@ -131,6 +131,28 @@
   .account-btn.logged-in{ background: #E4EEE7; border-color: var(--accent); color: var(--accent-dark); }
   .status{ font-size: 13px; color: var(--ink-soft); margin: 4px 0 10px; }
   .status.error{ color: #B23A3A; }
+  .toast{
+    position: fixed;
+    left: 50%; bottom: 24px;
+    transform: translateX(-50%) translateY(20px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    background: var(--ink);
+    color: #fff;
+    padding: 12px 18px;
+    border-radius: 999px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    box-shadow: 0 10px 30px -10px rgba(0,0,0,0.4);
+    z-index: 200;
+    font-size: 13.5px;
+    max-width: 90vw;
+    white-space: nowrap;
+  }
+  .toast.show{ opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+  .toast a{ color: #9BE0C4; font-weight: 700; text-decoration: underline; }
   .plan-generator-box{
     background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
     padding: 20px 22px; margin-bottom: 20px;
@@ -185,7 +207,7 @@
 
   /* ===== Browse layout ===== */
   .browse-layout{
-    max-width: 1360px;
+    max-width: 1760px;
     margin: 0 auto;
     padding: 28px 24px 120px;
     display: grid;
@@ -1560,6 +1582,22 @@ function selectMealChoice(meal){
   document.querySelectorAll(".meal-choice-btn").forEach(b => b.classList.toggle("active", b.dataset.meal === meal));
 }
 
+function showToast(html){
+  let toast = document.getElementById("appToast");
+  if(!toast){
+    toast = document.createElement("div");
+    toast.id = "appToast";
+    toast.className = "toast";
+    document.body.appendChild(toast);
+  }
+  toast.innerHTML = html;
+  toast.classList.remove("show");
+  void toast.offsetWidth;
+  toast.classList.add("show");
+  clearTimeout(toast._hideTimer);
+  toast._hideTimer = setTimeout(() => toast.classList.remove("show"), 3000);
+}
+
 function confirmAddToChart(){
   const dateStr = document.getElementById("addToChartDate").value;
   if(!dateStr){ alert("Pick a date first."); return; }
@@ -1574,6 +1612,10 @@ function confirmAddToChart(){
   saveDietChartEntries();
   closeModal("addToChartOverlay");
   pendingAddToChart = null;
+
+  const dayLabel = new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  showToast(`<span>✓ Added to ${meal}, ${dayLabel}</span><a href="#" onclick="event.preventDefault(); openDietChartView('${dateStr}')">View diary</a>`);
+
   if(isFirstForDate){
     state.sidebarDate = dateStr;
     state.planSidebarCollapsed = false;
