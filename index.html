@@ -185,16 +185,50 @@
 
   /* ===== Browse layout ===== */
   .browse-layout{
-    max-width: 1180px;
+    max-width: 1360px;
     margin: 0 auto;
     padding: 28px 24px 120px;
     display: grid;
-    grid-template-columns: 220px 1fr;
-    gap: 40px;
+    grid-template-columns: 220px 1fr 240px;
+    gap: 32px;
     align-items: start;
   }
   .filters-sidebar{ position: sticky; top: 24px; }
   .filters-sidebar h2{ font-size: 20px; margin: 0 0 18px; }
+  .plan-sidebar{ position: sticky; top: 24px; }
+  .plan-sidebar-card{
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 18px;
+  }
+  .plan-sidebar-head{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .plan-sidebar-close{
+    border: none; background: none; color: var(--ink-soft); cursor: pointer; font-size: 13px; padding: 2px 4px;
+  }
+  .plan-sidebar-close:hover{ color: #B23A3A; }
+  .plan-sidebar-collapsed-btn{
+    width: 100%;
+    display: flex; align-items: center; gap: 8px;
+    background: var(--card); border: 1px solid var(--border); border-radius: 999px;
+    padding: 10px 14px; cursor: pointer; text-align: left;
+  }
+  .plan-sidebar-collapsed-btn:hover{ border-color: var(--accent); }
+  .ps-collapsed-label{ font-size: 12.5px; font-weight: 600; flex: 1; }
+  .ps-collapsed-kcal{ font-size: 12px; color: var(--ink-soft); white-space: nowrap; }
+  .ps-collapsed-chevron{ color: var(--ink-soft); font-size: 12px; }
+  .plan-sidebar-title{ font-size: 14px; font-weight: 700; }
+  .plan-sidebar-date{
+    width: 100%; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--border);
+    font-size: 12.5px; margin-bottom: 14px;
+  }
+  .plan-sidebar-kcal{ display: flex; align-items: baseline; gap: 6px; margin-bottom: 4px; }
+  .plan-sidebar-kcal .num{ font-size: 24px; font-weight: 800; }
+  .plan-sidebar-kcal .lbl{ font-size: 11.5px; color: var(--ink-soft); }
+  .plan-sidebar-macros{ display: flex; gap: 10px; font-size: 11.5px; color: var(--ink-soft); margin-bottom: 14px; }
+  .plan-sidebar-list{ border-top: 1px solid var(--border); padding-top: 10px; }
+  .plan-sidebar-row{ display: flex; justify-content: space-between; font-size: 12.5px; padding: 6px 0; gap: 8px; }
+  .plan-sidebar-row span:first-child{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .plan-sidebar-row span:last-child{ color: var(--ink-soft); flex-shrink: 0; }
+  .plan-sidebar-empty{ font-size: 12px; color: var(--ink-soft); margin: 0; }
   .filter-group{ margin-bottom: 26px; }
   .filter-group-title{
     font-size: 11.5px;
@@ -299,9 +333,15 @@
   }
   .add-to-chart-btn:hover{ background: #E4EEE7; border-color: var(--accent); }
 
+  @media (max-width: 1050px){
+    .browse-layout{ grid-template-columns: 220px 1fr; }
+    .plan-sidebar{ grid-column: 1 / -1; position: static; }
+    .plan-sidebar-card{ max-width: 320px; }
+  }
   @media (max-width: 820px){
     .browse-layout{ grid-template-columns: 1fr; }
     .filters-sidebar{ position: static; }
+    .plan-sidebar-card{ max-width: none; }
   }
   .card{
     background: var(--card);
@@ -777,7 +817,7 @@ const UNITS = ["g","kg","ml","l","cup","cups","tbsp","tsp","piece","pieces","pc"
 /* ============ STATE ============ */
 let recipes = [];
 let foodDB = [];
-let state = { calBuckets: new Set(), dietTags: new Set(), search: "", favoritesOnly: false, view: { name: "grid" } };
+let state = { calBuckets: new Set(), dietTags: new Set(), search: "", favoritesOnly: false, sidebarDate: null, planSidebarCollapsed: true, view: { name: "grid" } };
 
 /* ============ MACRO ENGINE ============ */
 function parseIngredientLine(line){
@@ -1255,6 +1295,9 @@ function renderGridView(){
       </div>
       <div class="recipe-grid" id="recipeGrid"></div>
     </div>
+    <div class="plan-sidebar">
+      ${renderPlanSidebar()}
+    </div>
   `;
   container.appendChild(layout);
 
@@ -1521,6 +1564,7 @@ function confirmAddToChart(){
   const dateStr = document.getElementById("addToChartDate").value;
   if(!dateStr){ alert("Pick a date first."); return; }
   const { recipe, totals, meal } = pendingAddToChart;
+  const isFirstForDate = !dietChartEntries.some(e => e.date === dateStr);
   dietChartEntries.push({
     id: Date.now() + "_" + Math.random().toString(36).slice(2,7),
     recipeId: recipe.id, recipeName: recipe.name, icon: recipe.icon,
@@ -1530,7 +1574,15 @@ function confirmAddToChart(){
   saveDietChartEntries();
   closeModal("addToChartOverlay");
   pendingAddToChart = null;
+  if(isFirstForDate){
+    state.sidebarDate = dateStr;
+    state.planSidebarCollapsed = false;
+  }
   if(state.view.name === "dietchart") renderDietChartView();
+  else if(state.view.name === "grid"){
+    const slot = document.querySelector(".plan-sidebar");
+    if(slot) slot.innerHTML = renderPlanSidebar();
+  }
 }
 
 function openRecipeDetailModal(recipeId){
@@ -1767,8 +1819,64 @@ function acceptGeneratedPlan(){
   render();
 }
 
-function openDietChartView(){
-  state.view = { name: "dietchart", date: todayStr() };
+function renderPlanSidebar(){
+  const dateStr = state.sidebarDate || todayStr();
+  const dayEntries = dietChartEntries.filter(e => e.date === dateStr);
+  const totals = dayEntries.reduce((t, e) => {
+    const cal = macroCalories(e.protein, e.carbs, e.fat);
+    return { calories: t.calories + cal, protein: t.protein + e.protein, carbs: t.carbs + e.carbs, fat: t.fat + e.fat };
+  }, { calories: 0, protein: 0, carbs: 0, fat: 0 });
+  const isToday = dateStr === todayStr();
+  const label = isToday ? "Today's plan" : "Plan for " + formatFullDate(dateStr);
+
+  if(state.planSidebarCollapsed){
+    return `
+      <button class="plan-sidebar-collapsed-btn" onclick="togglePlanSidebar()">
+        <span class="ps-collapsed-label">${label}</span>
+        ${dayEntries.length ? `<span class="ps-collapsed-kcal">${r(totals.calories)} kcal</span>` : ""}
+        <span class="ps-collapsed-chevron">‹</span>
+      </button>
+    `;
+  }
+
+  return `
+    <div class="plan-sidebar-card">
+      <div class="plan-sidebar-head">
+        <div class="plan-sidebar-title">${isToday ? "Today's plan" : "Plan for"}</div>
+        <button class="plan-sidebar-close" onclick="togglePlanSidebar()" title="Collapse">✕</button>
+      </div>
+      <input type="date" class="plan-sidebar-date" value="${dateStr}" onchange="changeSidebarDate(this.value)">
+      <div class="plan-sidebar-kcal">
+        <span class="num">${r(totals.calories)}</span>
+        <span class="lbl">kcal added</span>
+      </div>
+      <div class="plan-sidebar-macros">
+        <span>P ${r(totals.protein)}g</span><span>C ${r(totals.carbs)}g</span><span>F ${r(totals.fat)}g</span>
+      </div>
+      <div class="plan-sidebar-list">
+        ${dayEntries.length ? dayEntries.map(e => `
+          <div class="plan-sidebar-row">
+            <span>${e.icon || "🍽️"} ${e.recipeName}</span>
+            <span>${r(macroCalories(e.protein, e.carbs, e.fat))}</span>
+          </div>`).join("") : `<p class="plan-sidebar-empty">Nothing added yet for this day.</p>`}
+      </div>
+      <button class="btn text" style="width:100%; margin-top:10px;" onclick="openDietChartView('${dateStr}')">View full diary</button>
+    </div>
+  `;
+}
+
+function togglePlanSidebar(){
+  state.planSidebarCollapsed = !state.planSidebarCollapsed;
+  render();
+}
+
+function changeSidebarDate(val){
+  state.sidebarDate = val;
+  render();
+}
+
+function openDietChartView(dateStr){
+  state.view = { name: "dietchart", date: dateStr || todayStr() };
   render();
 }
 
