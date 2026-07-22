@@ -1752,6 +1752,7 @@ async function parsePlanQuerySmart(text){
           return {
             outOfScope: false,
             calories: ai.calories || dailyGoals.calories,
+            caloriesWasDefaulted: !ai.calories,
             dietTag: ai.dietTag || null,
             dateStr: d.toISOString().slice(0,10),
             exclude: ai.exclude || [],
@@ -1762,7 +1763,7 @@ async function parsePlanQuerySmart(text){
     }catch(e){ console.warn("AI parser unavailable, falling back to pattern matching:", e); }
   }
   const local = parsePlanQuery(text);
-  return { ...local, exclude: [], usedAI: false };
+  return { ...local, caloriesWasDefaulted: !local.outOfScope && !/\d{3,5}\s*(kcal|cal|calorie)/i.test(text), exclude: [], usedAI: false };
 }
 
 async function generateMealPlanFromQuery(){
@@ -1781,7 +1782,7 @@ async function generateMealPlanFromQuery(){
     return;
   }
 
-  const { calories, dietTag, dateStr, exclude, usedAI } = parsed;
+  const { calories, dietTag, dateStr, exclude, usedAI, caloriesWasDefaulted } = parsed;
 
   let pool = recipes.filter(rc => {
     if(dietTag){
@@ -1823,8 +1824,9 @@ async function generateMealPlanFromQuery(){
   const planTotalCal = plan.reduce((s, p) => s + calcMacros(p.recipe.ingredients).totals.calories, 0);
 
   pendingPlan = { dateStr, entries: plan };
-  statusEl.textContent = `${usedAI ? "✨ " : ""}Suggested plan for ${formatFullDate(dateStr)}${dietTag ? " · " + dietTag : ""} — ${r(planTotalCal)} kcal total (target ${calories}).${!usedAI && PARSE_QUERY_EDGE_FUNCTION_URL === "" ? " (Using pattern-matching — AI parser not yet configured.)" : ""}`;
-  statusEl.className = "status";
+  const defaultedNote = caloriesWasDefaulted ? ` ⚠️ Couldn't find a calorie number in your request, so used your daily goal (${dailyGoals.calories}) instead.` : "";
+  statusEl.textContent = `${usedAI ? "✨ " : ""}Suggested plan for ${formatFullDate(dateStr)}${dietTag ? " · " + dietTag : ""} — ${r(planTotalCal)} kcal total (target ${calories}).${!usedAI && PARSE_QUERY_EDGE_FUNCTION_URL === "" ? " (Using pattern-matching — AI parser not yet configured.)" : ""}${defaultedNote}`;
+  statusEl.className = caloriesWasDefaulted ? "status error" : "status";
 
   document.getElementById("planPreviewSlot").innerHTML = plan.map(p => {
     const cal = calcMacros(p.recipe.ingredients).totals.calories;
