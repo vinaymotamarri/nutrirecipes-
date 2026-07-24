@@ -166,6 +166,15 @@
   .plan-preview-meal-title{ font-size: 12.5px; font-weight: 700; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
   .plan-preview-row{ display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 14px; }
   .plan-preview-row:last-child{ border-bottom: none; }
+  .plan-multiday-list{
+    max-height: 320px; overflow-y: auto; margin-top: 14px;
+    border: 1px solid var(--border); border-radius: 12px;
+  }
+  .plan-day-row{ padding: 10px 14px; border-bottom: 1px solid var(--border); }
+  .plan-day-row:last-child{ border-bottom: none; }
+  .plan-day-row-head{ display: flex; justify-content: space-between; font-size: 13.5px; font-weight: 700; }
+  .plan-day-row-meals{ font-size: 12px; color: var(--ink-soft); margin-top: 3px; }
+  .plan-day-row.skipped{ display: flex; justify-content: space-between; font-size: 13px; color: var(--ink-soft); font-style: italic; }
 
   /* ===== Data source banners ===== */
   .data-banner{
@@ -1795,6 +1804,90 @@ async function parsePlanQuerySmart(text){
   return { ...local, caloriesWasDefaulted: !local.outOfScope && !/\d{3,5}\s*(kcal|cal|calorie)/i.test(text), exclude: [], usedAI: false };
 }
 
+// Detects date RANGES locally rather than trusting the AI with something this
+// structured — "whole month of August", "next 10 days", "this week", etc.
+// Returns an array of date strings, or null if this looks like a single-day request.
+function parseDateRange(text){
+  const lower = text.toLowerCase();
+  const MONTH_NAMES = ["january","february","march","april","may","june","july","august","september","october","november","december"];
+
+  for(let i = 0; i < MONTH_NAMES.length; i++){
+    if(new RegExp("\\b" + MONTH_NAMES[i] + "\\b").test(lower)){
+      const now = new Date();
+      let year = now.getFullYear();
+      if(i < now.getMonth()) year += 1; // named month already passed this year — assume next year
+      const start = new Date(year, i, 1);
+      const end = new Date(year, i + 1, 0); // last day of that month
+      const today = new Date(); today.setHours(0,0,0,0);
+      const actualStart = start < today ? today : start; // never plan into the past
+      const days = [];
+      let d = new Date(actualStart);
+      while(d <= end){
+        days.push(d.toISOString().slice(0,10));
+        d.setDate(d.getDate() + 1);
+      }
+      return days;
+    }
+  }
+
+  const nextNMatch = lower.match(/next (\d{1,2}) days/);
+  if(nextNMatch){
+    const n = Math.min(parseInt(nextNMatch[1], 10), 31);
+    const days = [];
+    for(let i = 0; i < n; i++){
+      const d = new Date(); d.setDate(d.getDate() + i);
+      days.push(d.toISOString().slice(0,10));
+    }
+    return days;
+  }
+
+  if(/\bthis week\b|\bwhole week\b/.test(lower)){
+    return weekDatesFor(todayStr());
+  }
+
+  return null;
+}
+
+// Picks a recipe close to the calorie target, but randomizes among the closest few
+// matches rather than always the single best — and avoids whatever's been picked
+// for this meal in the last few days, so a month-long plan doesn't repeat itself daily.
+function pickRecipeForSlot(candidates, targetCal, recentIds){
+  if(!candidates.length) return null;
+  const scored = candidates.map(rc => ({
+    rc, diff: Math.abs(calcMacros(rc.ingredients).totals.calories - targetCal)
+  })).sort((a, b) => a.diff - b.diff);
+  const topPool = scored.slice(0, Math.min(4, scored.length));
+  const fresh = topPool.filter(s => !recentIds.has(s.rc.id));
+  const pickFrom = fresh.length ? fresh : topPool; // fall back to repeats only if truly unavoidable
+  return pickFrom[Math.floor(Math.random() * pickFrom.length)].rc;
+}
+
+// Builds one day's plan against the REMAINING gap (not the full target) — reused by
+// both the single-day and multi-day paths so the "don't double-add" logic stays consistent.
+function buildDayPlan(dateStr, calories, pool, recentByMeal){
+  const alreadyLogged = dietChartEntries
+    .filter(e => e.date === dateStr)
+    .reduce((sum, e) => sum + macroCalories(e.protein, e.carbs, e.fat), 0);
+  const remainingTarget = calories - alreadyLogged;
+  if(remainingTarget <= 0){
+    return { dateStr, plan: [], alreadyLogged, remainingTarget, skipped: true };
+  }
+  const MEAL_SHARE = { Breakfast: 0.25, Lunch: 0.35, Dinner: 0.30, Snacks: 0.10 };
+  const usedToday = new Set();
+  const plan = [];
+  MEAL_TYPES.forEach(meal => {
+    const target = remainingTarget * MEAL_SHARE[meal];
+    const candidates = pool.filter(rc => !usedToday.has(rc.id));
+    const picked = pickRecipeForSlot(candidates, target, recentByMeal[meal]);
+    if(!picked) return;
+    usedToday.add(picked.id);
+    plan.push({ meal, recipe: picked });
+    recentByMeal[meal].add(picked.id);
+    if(recentByMeal[meal].size > 3) recentByMeal[meal].delete(recentByMeal[meal].values().next().value);
+  });
+  return { dateStr, plan, alreadyLogged, remainingTarget, skipped: false };
+}
+
 async function generateMealPlanFromQuery(){
   const input = document.getElementById("planQueryInput");
   const statusEl = document.getElementById("planGeneratorStatus");
@@ -1811,21 +1904,7 @@ async function generateMealPlanFromQuery(){
     return;
   }
 
-  const { calories, dietTag, dateStr, exclude, usedAI, caloriesWasDefaulted } = parsed;
-
-  // "2000 cal for today" means "get my day's total to 2000" — not "add 2000 more
-  // on top of whatever's already logged." Check existing entries for that date first.
-  const alreadyLogged = dietChartEntries
-    .filter(e => e.date === dateStr)
-    .reduce((sum, e) => sum + macroCalories(e.protein, e.carbs, e.fat), 0);
-  const remainingTarget = calories - alreadyLogged;
-
-  if(remainingTarget <= 0){
-    statusEl.textContent = `You've already logged ${r(alreadyLogged)} kcal for ${formatFullDate(dateStr)}, which meets or exceeds your ${calories} kcal target — nothing more to add. Remove something from that day first if you'd like new suggestions.`;
-    statusEl.className = "status error";
-    document.getElementById("planPreviewSlot").innerHTML = "";
-    return;
-  }
+  const { calories, dietTag, exclude, usedAI, caloriesWasDefaulted } = parsed;
 
   let pool = recipes.filter(rc => {
     if(dietTag){
@@ -1846,29 +1925,37 @@ async function generateMealPlanFromQuery(){
     return;
   }
 
-  // Split the REMAINING target (not the full request) across meals
-  const MEAL_SHARE = { Breakfast: 0.25, Lunch: 0.35, Dinner: 0.30, Snacks: 0.10 };
-  const used = new Set();
-  const plan = [];
-  MEAL_TYPES.forEach(meal => {
-    const target = remainingTarget * MEAL_SHARE[meal];
-    const candidates = pool.filter(rc => !used.has(rc.id));
-    if(!candidates.length) return;
-    let best = candidates[0], bestDiff = Infinity;
-    candidates.forEach(rc => {
-      const cal = calcMacros(rc.ingredients).totals.calories;
-      const diff = Math.abs(cal - target);
-      if(diff < bestDiff){ bestDiff = diff; best = rc; }
-    });
-    used.add(best.id);
-    plan.push({ meal, recipe: best });
-  });
+  const dateRange = parseDateRange(text);
+  const defaultedNote = caloriesWasDefaulted ? ` ⚠️ Couldn't find a calorie number in your request, so used your daily goal (${dailyGoals.calories}) instead.` : "";
 
+  if(dateRange && dateRange.length > 1){
+    const recentByMeal = { Breakfast: new Set(), Lunch: new Set(), Dinner: new Set(), Snacks: new Set() };
+    const dayPlans = dateRange.map(d => buildDayPlan(d, calories, pool, recentByMeal));
+    pendingPlan = { multiDay: true, days: dayPlans };
+
+    const skippedDays = dayPlans.filter(d => d.skipped).length;
+    statusEl.textContent = `${usedAI ? "✨ " : ""}Suggested ${dayPlans.length}-day plan, ${formatFullDate(dateRange[0])} – ${formatFullDate(dateRange[dateRange.length-1])}${dietTag ? " · " + dietTag : ""} — targeting ${calories} kcal/day.${skippedDays ? ` ${skippedDays} day(s) already met their target and were skipped.` : ""}${defaultedNote}`;
+    statusEl.className = "status";
+    document.getElementById("planPreviewSlot").innerHTML = renderMultiDayPreview(dayPlans);
+    return;
+  }
+
+  const dateStr = parsed.dateStr;
+  const recentByMeal = { Breakfast: new Set(), Lunch: new Set(), Dinner: new Set(), Snacks: new Set() };
+  const dayResult = buildDayPlan(dateStr, calories, pool, recentByMeal);
+
+  if(dayResult.skipped){
+    statusEl.textContent = `You've already logged ${r(dayResult.alreadyLogged)} kcal for ${formatFullDate(dateStr)}, which meets or exceeds your ${calories} kcal target — nothing more to add. Remove something from that day first if you'd like new suggestions.`;
+    statusEl.className = "status error";
+    document.getElementById("planPreviewSlot").innerHTML = "";
+    return;
+  }
+
+  const plan = dayResult.plan;
   const planTotalCal = plan.reduce((s, p) => s + calcMacros(p.recipe.ingredients).totals.calories, 0);
 
-  pendingPlan = { dateStr, entries: plan };
-  const defaultedNote = caloriesWasDefaulted ? ` ⚠️ Couldn't find a calorie number in your request, so used your daily goal (${dailyGoals.calories}) instead.` : "";
-  const alreadyLoggedNote = alreadyLogged > 0 ? ` You already had ${r(alreadyLogged)} kcal logged, so this fills the remaining ${r(remainingTarget)} kcal to reach ${calories}.` : "";
+  pendingPlan = { multiDay: false, dateStr, entries: plan };
+  const alreadyLoggedNote = dayResult.alreadyLogged > 0 ? ` You already had ${r(dayResult.alreadyLogged)} kcal logged, so this fills the remaining ${r(dayResult.remainingTarget)} kcal to reach ${calories}.` : "";
   statusEl.textContent = `${usedAI ? "✨ " : ""}Suggested plan for ${formatFullDate(dateStr)}${dietTag ? " · " + dietTag : ""} — ${r(planTotalCal)} kcal total (target ${calories}).${!usedAI && PARSE_QUERY_EDGE_FUNCTION_URL === "" ? " (Using pattern-matching — AI parser not yet configured.)" : ""}${defaultedNote}${alreadyLoggedNote}`;
   statusEl.className = caloriesWasDefaulted ? "status error" : "status";
 
@@ -1884,6 +1971,27 @@ async function generateMealPlanFromQuery(){
     </div>`;
 }
 
+function renderMultiDayPreview(dayPlans){
+  const rows = dayPlans.map(d => {
+    if(d.skipped){
+      return `<div class="plan-day-row skipped"><span>${formatFullDate(d.dateStr)}</span><span>Already met (${r(d.alreadyLogged)} kcal) — skipped</span></div>`;
+    }
+    const total = d.plan.reduce((s, p) => s + calcMacros(p.recipe.ingredients).totals.calories, 0);
+    const mealNames = d.plan.map(p => p.recipe.name).join(", ") || "No matching recipes found";
+    return `<div class="plan-day-row">
+      <div class="plan-day-row-head"><span>${formatFullDate(d.dateStr)}</span><span>${r(total)} kcal</span></div>
+      <div class="plan-day-row-meals">${mealNames}</div>
+    </div>`;
+  }).join("");
+
+  const plannedCount = dayPlans.filter(d => !d.skipped).length;
+  return `<div class="plan-multiday-list">${rows}</div>
+    <div class="modal-actions" style="margin-top:14px;">
+      <button class="btn text" onclick="dismissPlanPreview()">Discard</button>
+      <button class="btn primary" onclick="acceptGeneratedPlan()">Add all ${plannedCount} day(s) to my diary</button>
+    </div>`;
+}
+
 function dismissPlanPreview(){
   pendingPlan = null;
   document.getElementById("planPreviewSlot").innerHTML = "";
@@ -1892,6 +2000,28 @@ function dismissPlanPreview(){
 
 function acceptGeneratedPlan(){
   if(!pendingPlan) return;
+
+  if(pendingPlan.multiDay){
+    pendingPlan.days.forEach(day => {
+      if(day.skipped) return;
+      day.plan.forEach(p => {
+        const totals = calcMacros(p.recipe.ingredients).totals;
+        dietChartEntries.push({
+          id: Date.now() + "_" + Math.random().toString(36).slice(2,7),
+          recipeId: p.recipe.id, recipeName: p.recipe.name, icon: p.recipe.icon,
+          meal: p.meal, date: day.dateStr, eaten: true,
+          calories: totals.calories, protein: totals.protein, carbs: totals.carbs, fat: totals.fat
+        });
+      });
+    });
+    saveDietChartEntries();
+    const firstPlanned = pendingPlan.days.find(d => !d.skipped);
+    state.view = { name: "dietchart", date: firstPlanned ? firstPlanned.dateStr : todayStr() };
+    pendingPlan = null;
+    render();
+    return;
+  }
+
   pendingPlan.entries.forEach(p => {
     const totals = calcMacros(p.recipe.ingredients).totals;
     dietChartEntries.push({
@@ -2039,7 +2169,7 @@ function renderDietChartView(){
     <div class="plan-generator-box">
       <div class="filter-group-title" style="margin-bottom:8px;">✨ Generate a diet chart</div>
       <div class="row">
-        <input type="text" id="planQueryInput" placeholder="e.g. '2000 cal low carb diet for tomorrow'">
+        <input type="text" id="planQueryInput" placeholder="e.g. '2000 cal low carb for tomorrow' or 'diet chart for the whole month of August'">
         <button class="btn primary" onclick="generateMealPlanFromQuery()">Generate</button>
       </div>
       <div id="planGeneratorStatus" class="status"></div>
