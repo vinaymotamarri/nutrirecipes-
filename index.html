@@ -1749,10 +1749,12 @@ async function parsePlanQuerySmart(text){
         if(!ai.error){
           if(ai.outOfScope) return { outOfScope: true, usedAI: true };
           const d = new Date(); d.setDate(d.getDate() + (ai.dateOffsetDays || 0));
+          const localCalMatch = text.match(/(\d{3,5})\s*(kcal|cal|calorie|calories)/i);
+          const localCalories = localCalMatch ? parseInt(localCalMatch[1], 10) : null;
           return {
             outOfScope: false,
-            calories: ai.calories || dailyGoals.calories,
-            caloriesWasDefaulted: !ai.calories,
+            calories: ai.calories || localCalories || dailyGoals.calories,
+            caloriesWasDefaulted: !ai.calories && !localCalories,
             dietTag: ai.dietTag || null,
             dateStr: d.toISOString().slice(0,10),
             exclude: ai.exclude || [],
