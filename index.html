@@ -556,14 +556,19 @@
     background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
     padding: 24px; margin-bottom: 24px; display: flex; align-items: flex-start; gap: 40px; flex-wrap: wrap;
   }
-  .edit-goals-btn{
+  .clear-day-btn{
     position: absolute; top: 20px; right: 20px;
     display: flex; align-items: center; gap: 6px;
     background: var(--bg); border: 1px solid var(--border); border-radius: 999px;
-    padding: 8px 16px; font-weight: 600; font-size: 13px; color: var(--ink); cursor: pointer;
+    padding: 8px 16px; font-weight: 600; font-size: 13px; color: var(--ink-soft); cursor: pointer;
   }
-  .edit-goals-btn:hover{ border-color: var(--accent); color: var(--accent-dark); background: #E4EEE7; }
+  .clear-day-btn:hover{ border-color: #B23A3A; color: #B23A3A; background: #FBEAEA; }
   .kcal-remaining-block{ min-width: 220px; }
+  .edit-goals-inline-btn{
+    background: none; border: none; color: var(--accent-dark); font-weight: 600;
+    font-size: 12px; cursor: pointer; padding: 0; margin-left: 8px; text-decoration: underline;
+  }
+  .edit-goals-inline-btn:hover{ color: var(--accent); }
   .kcal-remaining-num{ font-size: 40px; font-weight: 800; line-height: 1; }
   .kcal-remaining-num.over{ color: #B23A3A; }
   .kcal-remaining-label{ font-size: 11.5px; font-weight: 700; letter-spacing: 0.06em; color: var(--ink-soft); margin: 4px 0 6px; }
@@ -1684,6 +1689,17 @@ function removeDietChartEntry(id){
   renderDietChartView();
 }
 
+function clearDietForDate(dateStr){
+  const count = dietChartEntries.filter(e => e.date === dateStr).length;
+  if(!count){ showToast(`<span>Nothing logged for this day yet.</span>`); return; }
+  const label = dateStr === todayStr() ? "today" : formatFullDate(dateStr);
+  if(!confirm(`Remove all ${count} item(s) logged for ${label}? This can't be undone.`)) return;
+  dietChartEntries = dietChartEntries.filter(e => e.date !== dateStr);
+  saveDietChartEntries();
+  renderDietChartView();
+  showToast(`<span>✓ Cleared ${label}</span>`);
+}
+
 function loadGoals(){
   try{ return JSON.parse(localStorage.getItem("nr_goals")) || { calories: 2000, protein: 140, carbs: 250, fat: 70 }; }
   catch(e){ return { calories: 2000, protein: 140, carbs: 250, fat: 70 }; }
@@ -1737,6 +1753,14 @@ function parsePlanQuery(text){
 const PARSE_QUERY_EDGE_FUNCTION_URL = "https://limssbrcututebxiemqd.supabase.co/functions/v1/parse-diet-query";
 
 async function parsePlanQuerySmart(text){
+  const localDateOffset = (() => {
+    const lower = text.toLowerCase();
+    if(/day after tomorrow/.test(lower)) return 2;
+    if(/tomorrow/.test(lower)) return 1;
+    if(/\btoday\b|\btonight\b/.test(lower)) return 0;
+    return null; // no explicit keyword — defer to whatever the AI infers
+  })();
+
   if(PARSE_QUERY_EDGE_FUNCTION_URL){
     try{
       const res = await fetch(PARSE_QUERY_EDGE_FUNCTION_URL, {
@@ -1748,7 +1772,10 @@ async function parsePlanQuerySmart(text){
         const ai = await res.json();
         if(!ai.error){
           if(ai.outOfScope) return { outOfScope: true, usedAI: true };
-          const d = new Date(); d.setDate(d.getDate() + (ai.dateOffsetDays || 0));
+          // Trust an explicit "today"/"tomorrow"/etc keyword in the user's own text over
+          // the AI's inferred offset — same principle as the calorie safety net below.
+          const offsetDays = localDateOffset !== null ? localDateOffset : (ai.dateOffsetDays || 0);
+          const d = new Date(); d.setDate(d.getDate() + offsetDays);
           const localCalMatch = text.match(/(\d{3,5})\s*(kcal|cal|calorie|calories)/i);
           const localCalories = localCalMatch ? parseInt(localCalMatch[1], 10) : null;
           return {
@@ -1786,6 +1813,20 @@ async function generateMealPlanFromQuery(){
 
   const { calories, dietTag, dateStr, exclude, usedAI, caloriesWasDefaulted } = parsed;
 
+  // "2000 cal for today" means "get my day's total to 2000" — not "add 2000 more
+  // on top of whatever's already logged." Check existing entries for that date first.
+  const alreadyLogged = dietChartEntries
+    .filter(e => e.date === dateStr)
+    .reduce((sum, e) => sum + macroCalories(e.protein, e.carbs, e.fat), 0);
+  const remainingTarget = calories - alreadyLogged;
+
+  if(remainingTarget <= 0){
+    statusEl.textContent = `You've already logged ${r(alreadyLogged)} kcal for ${formatFullDate(dateStr)}, which meets or exceeds your ${calories} kcal target — nothing more to add. Remove something from that day first if you'd like new suggestions.`;
+    statusEl.className = "status error";
+    document.getElementById("planPreviewSlot").innerHTML = "";
+    return;
+  }
+
   let pool = recipes.filter(rc => {
     if(dietTag){
       const totals = calcMacros(rc.ingredients).totals;
@@ -1805,12 +1846,12 @@ async function generateMealPlanFromQuery(){
     return;
   }
 
-  // Split target calories across meals, then pick the closest-matching recipe for each slot
+  // Split the REMAINING target (not the full request) across meals
   const MEAL_SHARE = { Breakfast: 0.25, Lunch: 0.35, Dinner: 0.30, Snacks: 0.10 };
   const used = new Set();
   const plan = [];
   MEAL_TYPES.forEach(meal => {
-    const target = calories * MEAL_SHARE[meal];
+    const target = remainingTarget * MEAL_SHARE[meal];
     const candidates = pool.filter(rc => !used.has(rc.id));
     if(!candidates.length) return;
     let best = candidates[0], bestDiff = Infinity;
@@ -1827,7 +1868,8 @@ async function generateMealPlanFromQuery(){
 
   pendingPlan = { dateStr, entries: plan };
   const defaultedNote = caloriesWasDefaulted ? ` ⚠️ Couldn't find a calorie number in your request, so used your daily goal (${dailyGoals.calories}) instead.` : "";
-  statusEl.textContent = `${usedAI ? "✨ " : ""}Suggested plan for ${formatFullDate(dateStr)}${dietTag ? " · " + dietTag : ""} — ${r(planTotalCal)} kcal total (target ${calories}).${!usedAI && PARSE_QUERY_EDGE_FUNCTION_URL === "" ? " (Using pattern-matching — AI parser not yet configured.)" : ""}${defaultedNote}`;
+  const alreadyLoggedNote = alreadyLogged > 0 ? ` You already had ${r(alreadyLogged)} kcal logged, so this fills the remaining ${r(remainingTarget)} kcal to reach ${calories}.` : "";
+  statusEl.textContent = `${usedAI ? "✨ " : ""}Suggested plan for ${formatFullDate(dateStr)}${dietTag ? " · " + dietTag : ""} — ${r(planTotalCal)} kcal total (target ${calories}).${!usedAI && PARSE_QUERY_EDGE_FUNCTION_URL === "" ? " (Using pattern-matching — AI parser not yet configured.)" : ""}${defaultedNote}${alreadyLoggedNote}`;
   statusEl.className = caloriesWasDefaulted ? "status error" : "status";
 
   document.getElementById("planPreviewSlot").innerHTML = plan.map(p => {
@@ -2020,11 +2062,14 @@ function renderDietChartView(){
     <h1 class="diary-date-heading">${formatFullDate(dateStr)}</h1>
 
     <div class="macro-summary-card">
-      <button class="edit-goals-btn" onclick="openEditGoalsModal()">⚙ Edit daily goals</button>
+      <button class="clear-day-btn" onclick="clearDietForDate('${dateStr}')" title="Remove everything logged for this day">🗑 Clear day</button>
       <div class="kcal-remaining-block">
         <div class="kcal-remaining-num ${overBudget ? "over" : ""}">${overBudget ? "-" : ""}${remaining}</div>
         <div class="kcal-remaining-label ${overBudget ? "over" : ""}">${overBudget ? "⚠️ KCAL OVER GOAL" : "KCAL REMAINING"}</div>
-        <div class="kcal-remaining-sub">${r(eatenTotals.calories)} eaten · ${dailyGoals.calories} goal</div>
+        <div class="kcal-remaining-sub">
+          ${r(eatenTotals.calories)} eaten · ${dailyGoals.calories} goal
+          <button class="edit-goals-inline-btn" onclick="openEditGoalsModal()">⚙ Edit goals</button>
+        </div>
         <div class="meal-stack-track ${overBudget ? "over" : ""}">
           ${MEAL_TYPES.map(m => `<div class="meal-stack-fill" style="width:${pct(mealEatenKcal[m], dailyGoals.calories)}%; background:${MEAL_COLORS[m]};"></div>`).join("")}
         </div>
